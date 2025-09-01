@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_whatsapp_configuration_tree" model="ir.ui.view">
+        <field name="name">whatsapp.configuration.tree</field>
+        <field name="model">whatsapp.configuration</field>
+        <field name="arch" type="xml">
+            <tree string="WhatsApp Configurations">
+                <field name="name"/>
+                <field name="provider"/>
+                <field name="channel_id"/>
+                <field name="supervisor_phone"/>
+                <field name="active"/>
+                <field name="device_id" optional="hide"/>
+            </tree>
+        </field>
+    </record>
+
+    <record id="view_whatsapp_configuration_form" model="ir.ui.view">
+        <field name="name">whatsapp.configuration.form</field>
+        <field name="model">whatsapp.configuration</field>
+        <field name="arch" type="xml">
+            <form string="WhatsApp Configuration">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="name"/>
+                            <field name="provider"/>
+                            <field name="active"/>
+                        </group>
+                        <group>
+                            <field name="channel_id"/>
+                            <field name="token" password="True"/>
+                            <field name="supervisor_phone"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="User Access">
+                            <group>
+                                <field name="user_ids" widget="many2many_tags"/>
+                                <field name="group_ids" widget="many2many_tags"/>
+                            </group>
+                        </page>
+                        <page string="Legacy" attrs="{'invisible': [('provider', '=', 'whapi')]}">
+                            <group>
+                                <field name="device_id" readonly="1"/>
+                                <separator string="Legacy Wassenger Fields"/>
+                                <p>These fields are only used for backward compatibility with Wassenger.</p>
+                            </group>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_whatsapp_configuration" model="ir.actions.act_window">
+        <field name="name">WhatsApp Configurations</field>
+        <field name="res_model">whatsapp.configuration</field>
+        <field name="view_mode">tree,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Create your first WhatsApp configuration
+            </p>
+        </field>
+    </record>
+</odoo>

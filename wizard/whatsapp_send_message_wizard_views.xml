@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+  <data>
+    <record id="view_whatsapp_send_message_wizard_form" model="ir.ui.view">
+      <field name="name">whatsapp.send.message.wizard.form</field>
+      <field name="model">whatsapp.send.message.wizard</field>
+      <field name="arch" type="xml">
+        <form string="Send WhatsApp Message">
+          <sheet>
+
+            <!-- Recipient Section -->
+            <group col="2">
+              <separator string="Recipient Selection" colspan="2"/>
+              <field name="recipient_id"
+                     attrs="{'invisible': [('group_id', '!=', False)]}"
+                     options="{'no_create': True}"/>
+              <field name="group_id"
+                     attrs="{'invisible': [('recipient_id', '!=', False)]}"
+                     options="{'no_create': True}"/>
+              <field name="phone"
+                     attrs="{'readonly': [('recipient_id', '!=', False)]}"
+                     placeholder="Enter phone number..."/>
+            </group>
+
+            <!-- Message Type Selector -->
+            <group col="2">
+              <separator string="Message Type" colspan="2"/>
+              <field name="message_type" widget="radio"/>
+            </group>
+
+            <!-- Media Upload Section -->
+            <group string="Media Upload" attrs="{'invisible': [('message_type', '!=', 'media')]}" col="2">
+                    <field name="media_file" filename="media_file_name"
+                        attrs="{
+                        'required': [('message_type', '=', 'media')],
+                        'invisible': [('message_type', '!=', 'media')]
+                    }"/>
+                    <field name="message"
+                        placeholder="Type your message here..."
+                        attrs="{
+                        'required': [('message_type', '=', 'text')],
+                    }"/>
+            </group>
+            
+            <!-- Text Message Section -->
+            <group string="Text Message" attrs="{'invisible': [('message_type', '!=', 'text')]}" col="2">
+              <field name="message"
+                     placeholder="Type your message here..."
+                     attrs="{
+                       'required': [('message_type', '=', 'text')],
+                     }"/>
+              <field name="preview_url"
+                     attrs="{'invisible': [('message_type', '!=', 'text')]}"
+                     placeholder="Preview URL..."/>
+            </group>
+
+            <!-- Action Buttons -->
+            <footer>
+              <button string="Send Message" name="send_message" type="object" class="btn-primary"/>
+              <button string="Cancel" class="btn-secondary" special="cancel"/>
+            </footer>
+
+          </sheet>
+        </form>
+      </field>
+    </record>
+  </data>
+</odoo>

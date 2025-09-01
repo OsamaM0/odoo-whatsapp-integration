@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <!-- Contact Tree View -->
+        <record id="view_whatsapp_contact_tree" model="ir.ui.view">
+            <field name="name">whatsapp.contact.tree</field>
+            <field name="model">whatsapp.contact</field>
+            <field name="arch" type="xml">
+                <tree decoration-muted="is_active == False" decoration-success="isWAContact == True" 
+                      decoration-warning="isWAContact == False"
+                      decoration-info="is_phone_contact == True">
+                    <field name="display_name"/>
+                    <field name="pushname"/>
+                    <field name="phone"/>
+                    <field name="contact_id"/>
+                    <field name="configuration_id" groups="whatsapp_integration.group_whatsapp_admin"/>
+                    <field name="provider"/>
+                    <field name="is_active"/>
+                    <field name="isWAContact"/>
+                    <field name="is_phone_contact"/>
+                    <field name="is_chat_contact"/>
+                    <field name="group_count"/>
+                    <field name="sent_message_count"/>
+                    <field name="synced_at"/>
+                    <button name="sync_contact_info" string="Sync" type="object" 
+                            class="btn-link" icon="fa-refresh" 
+                            title="Sync contact information"/>
+                    <button name="check_whatsapp_status" string="Check Status" type="object" 
+                            class="btn-link" icon="fa-whatsapp" 
+                            title="Check WhatsApp status"/>
+                </tree>
+            </field>
+        </record>
+        
+        <!-- Contact Form View -->
+        <record id="view_whatsapp_contact_form" model="ir.ui.view">
+            <field name="name">whatsapp.contact.form</field>
+            <field name="model">whatsapp.contact</field>
+            <field name="arch" type="xml">
+                <form>
+                    <header>
+                        <button name="sync_contact_info" string="Sync Info" type="object" 
+                                class="btn-primary" icon="fa-refresh"/>
+                        <button name="check_whatsapp_status" string="Check WhatsApp Status" type="object" 
+                                class="btn-secondary" icon="fa-whatsapp"/>
+                        <button name="send_message" string="Send Message" type="object" 
+                                class="btn-success" icon="fa-paper-plane"/>
+                        <button name="%(action_whatsapp_remove_member_wizard_with_contact)d" string="Remove from Groups" type="action" 
+                                class="btn-warning" icon="fa-user-times"
+                                groups="whatsapp_integration.group_whatsapp_admin"
+                                attrs="{'invisible': [('group_count', '=', 0)]}"/>
+                        <field name="is_active" widget="boolean_toggle"/>
+                    </header>
+                    <sheet>
+                        <div class="oe_button_box" name="button_box">
+                            <button name="action_view_groups" type="object" class="oe_stat_button" icon="fa-users">
+                                <field name="group_count" widget="statinfo" string="Groups"/>
+                            </button>
+                            <button name="action_view_sent_messages" type="object" class="oe_stat_button" icon="fa-inbox">
+                                <field name="sent_message_count" widget="statinfo" string="From Contact"/>
+                            </button>
+                        </div>
+                        
+                        <widget name="web_ribbon" title="WhatsApp Contact" bg_color="bg-success" 
+                                attrs="{'invisible': [('isWAContact', '=', False)]}"/>
+                        <widget name="web_ribbon" title="Not WhatsApp Contact" bg_color="bg-warning" 
+                                attrs="{'invisible': [('isWAContact', '=', True)]}"/>
+                        
+                        <group>
+                            <group name="basic_info">
+                                <field name="display_name"/>
+                                <field name="pushname"/>
+                                <field name="phone"/>
+                                <field name="contact_id" readonly="1"/>
+                                <field name="configuration_id" readonly="1" groups="whatsapp_integration.group_whatsapp_admin"/>
+                                <field name="provider" readonly="1"/>
+                            </group>
+                            <group name="status_info">
+                                <field name="isWAContact"/>
+                                <field name="is_phone_contact"/>
+                                <field name="is_chat_contact"/>
+                                <field name="synced_at" readonly="1"/>
+                                <field name="created_at" readonly="1"/>
+                                <field name="updated_at" readonly="1"/>
+                            </group>
+                        </group>
+                        
+                        <notebook>
+                            <page string="Groups" name="groups">
+                                <field name="group_ids">
+                                    <tree>
+                                        <field name="name"/>
+                                        <field name="group_id"/>
+                                        <field name="participant_count"/>
+                                        <field name="synced_at"/>
+                                        <button name="sync_group_info" string="Sync Group" 
+                                                type="object" class="btn-link"/>
+                                    </tree>
+                                </field>
+                            </page>
+                            <page string="Messages" name="messages">
+                                <field name="message_ids">
+                                    <tree>
+                                        <field name="chat_id"/>
+                                        <field name="body"/>
+                                        <field name="from_me"/>
+                                        <field name="created_at" string="Date"/>
+                                        <field name="message_type"/>
+                                        <field name="status"/>
+                                    </tree>
+                                </field>
+                            </page>
+                        </notebook>
+                    </sheet>
+                </form>
+            </field>
+        </record>
+        
+        <!-- Contact Search View -->
+        <record id="view_whatsapp_contact_search" model="ir.ui.view">
+            <field name="name">whatsapp.contact.search</field>
+            <field name="model">whatsapp.contact</field>
+            <field name="arch" type="xml">
+                <search>
+                    <field name="display_name" string="Name"/>
+                    <field name="pushname" string="Push Name"/>
+                    <field name="phone" string="Phone"/>
+                    <field name="contact_id" string="Contact ID"/>
+                    <field name="configuration_id" string="Configuration" groups="whatsapp_integration.group_whatsapp_admin"/>
+                    
+                    <filter string="Active" name="active" domain="[('is_active', '=', True)]"/>
+                    <filter string="Inactive" name="inactive" domain="[('is_active', '=', False)]"/>
+                    <separator/>
+                    <filter string="WhatsApp Users" name="wa_users" domain="[('isWAContact', '=', True)]"/>
+                    <filter string="Non-WhatsApp" name="non_wa" domain="[('isWAContact', '=', False)]"/>
+                    <separator/>
+                    <filter string="Phone Contacts" name="phone_contacts" domain="[('is_phone_contact', '=', True)]"/>
+                    <filter string="Chat Contacts" name="chat_contacts" domain="[('is_chat_contact', '=', True)]"/>
+                    <separator/>
+                    <filter string="WHAPI Provider" name="whapi" domain="[('provider', '=', 'whapi')]"/>
+                    <filter string="Wassenger Provider" name="wassenger" domain="[('provider', '=', 'wassenger')]"/>
+                    <separator/>
+                    <filter string="Recently Synced" name="recent_sync" 
+                            domain="[('synced_at', '>=', (datetime.datetime.now() - datetime.timedelta(hours=24)).strftime('%Y-%m-%d %H:%M:%S'))]"/>
+                    
+                    <group expand="0" string="Group By">
+                        <filter string="Configuration" name="group_configuration" context="{'group_by': 'configuration_id'}" groups="whatsapp_integration.group_whatsapp_admin"/>
+                        <filter string="Status" name="group_status" context="{'group_by': 'is_active'}"/>
+                        <filter string="WhatsApp Status" name="group_wa_status" context="{'group_by': 'isWAContact'}"/>
+                        <filter string="Provider" name="group_provider" context="{'group_by': 'provider'}"/>
+                        <filter string="Sync Date" name="group_sync_date" context="{'group_by': 'synced_at:day'}"/>
+                    </group>
+                </search>
+            </field>
+        </record>
+        
+        <!-- Contact Action -->
+        <record id="action_whatsapp_contact" model="ir.actions.act_window">
+            <field name="name">WhatsApp Contacts</field>
+            <field name="res_model">whatsapp.contact</field>
+            <field name="view_mode">tree,form</field>
+            <field name="search_view_id" ref="view_whatsapp_contact_search"/>
+            <field name="context">{'search_default_active': 1}</field>
+        </record>
+    </data>
+</odoo>

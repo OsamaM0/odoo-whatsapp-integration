@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <!-- Remove Member Wizard Form View -->
+        <record id="view_whatsapp_remove_member_wizard_form" model="ir.ui.view">
+            <field name="name">whatsapp.remove.member.wizard.form</field>
+            <field name="model">whatsapp.remove.member.wizard</field>
+            <field name="arch" type="xml">
+                <form string="Remove Member from Groups">
+                    <div class="alert alert-warning" role="alert">
+                        <strong>Warning:</strong> This action will remove the selected contact from WhatsApp groups. 
+                        This action cannot be undone easily - the contact would need to be re-invited to rejoin groups.
+                    </div>
+                    
+                    <group>
+                        <group name="contact_info" string="Contact Information">
+                            <field name="contact_id" options="{'no_create': True, 'no_edit': True}"/>
+                            <field name="phone_number"/>
+                        </group>
+                        
+                        <group name="options" string="Options">
+                            <field name="remove_from_all"/>
+                            <field name="deactivate_contact"/>
+                        </group>
+                    </group>
+                    
+                    <group name="group_selection" string="Group Selection" attrs="{'invisible': [('contact_id', '=', False)]}">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <strong>Available Groups: </strong>
+                                <field name="total_groups_count" readonly="1" class="oe_inline"/> groups
+                            </div>
+                            <div class="col-md-6">
+                                <strong>Selected Groups: </strong>
+                                <field name="selected_groups_count" readonly="1" class="oe_inline"/> groups
+                            </div>
+                        </div>
+                        
+                        <div class="mt16" attrs="{'invisible': [('total_groups_count', '=', 0)]}">
+                            <button name="action_select_all_groups" string="Select All Groups" type="object" 
+                                    class="btn-link" icon="fa-check-square-o"
+                                    attrs="{'invisible': [('remove_from_all', '=', True)]}"/>
+                            <button name="action_clear_selection" string="Clear Selection" type="object" 
+                                    class="btn-link" icon="fa-square-o"
+                                    attrs="{'invisible': [('remove_from_all', '=', False)]}"/>
+                        </div>
+                        
+                        <field name="available_group_ids" invisible="1"/>
+                        
+                        <div attrs="{'invisible': [('total_groups_count', '=', 0)]}">
+                            <div class="alert alert-info" role="alert" attrs="{'invisible': [('remove_from_all', '=', False)]}">
+                                <strong>Remove from All Groups:</strong> The contact will be removed from all groups they are currently a member of.
+                            </div>
+                            
+                            <field name="group_ids" 
+                                   attrs="{'invisible': [('remove_from_all', '=', True)], 'required': [('remove_from_all', '=', False)]}"
+                                   domain="[('id', 'in', available_group_ids)]"
+                                   options="{'no_create': True, 'no_edit': True}">
+                                <tree decoration-success="is_active == True" decoration-muted="is_active == False">
+                                    <field name="name"/>
+                                    <field name="description"/>
+                                    <field name="participant_count" string="Members"/>
+                                    <field name="is_active"/>
+                                    <field name="provider"/>
+                                </tree>
+                            </field>
+                        </div>
+                        
+                        <div class="alert alert-warning" role="alert" attrs="{'invisible': [('total_groups_count', '>', 0)]}">
+                            <strong>No Groups Found:</strong> This contact is not a member of any active groups.
+                        </div>
+                    </group>
+                    
+                    <footer>
+                        <button name="action_remove_member" string="Remove Member" type="object" 
+                                class="btn-primary" 
+                                attrs="{'invisible': ['|', ('contact_id', '=', False), ('total_groups_count', '=', 0)]}"/>
+                        <button string="Cancel" class="btn-secondary" special="cancel"/>
+                    </footer>
+                </form>
+            </field>
+        </record>
+        
+        <!-- Action to open the Remove Member Wizard -->
+        <record id="action_whatsapp_remove_member_wizard" model="ir.actions.act_window">
+            <field name="name">Remove Member from Groups</field>
+            <field name="res_model">whatsapp.remove.member.wizard</field>
+            <field name="view_mode">form</field>
+            <field name="target">new</field>
+            <field name="context">{}</field>
+        </record>
+        
+        <!-- Action to open the Remove Member Wizard with preset contact -->
+        <record id="action_whatsapp_remove_member_wizard_with_contact" model="ir.actions.act_window">
+            <field name="name">Remove from Groups</field>
+            <field name="res_model">whatsapp.remove.member.wizard</field>
+            <field name="view_mode">form</field>
+            <field name="target">new</field>
+            <field name="context">{'default_contact_id': active_id}</field>
+            <field name="binding_model_id" ref="model_whatsapp_contact"/>
+            <field name="binding_view_types">form,list</field>
+        </record>
+        
+    </data>
+</odoo>

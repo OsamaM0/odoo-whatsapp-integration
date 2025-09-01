@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <!-- Group Tree View -->
+        <record id="view_whatsapp_group_tree" model="ir.ui.view">
+            <field name="name">whatsapp.group.tree</field>
+            <field name="model">whatsapp.group</field>
+            <field name="arch" type="xml">
+                <tree decoration-muted="is_active == False" create="true">
+                    <field name="name"/>
+                    <field name="description"/>
+                    <field name="participant_count"/>
+                    <field name="latest_messages_count" string="Latest Messages (30d)"/>
+                    <field name="last_message_date"/>
+                    <field name="configuration_id" groups="whatsapp_integration.group_whatsapp_admin"/>
+                    <field name="is_active"/>
+                    <field name="synced_at"/>
+                    <field name="provider"/>
+                    <field name="group_id"/>
+                    <field name="invite_code" invisible="1"/>
+                    <button name="send_message_to_group" string="Send Message" type="object" 
+                            class="btn-link" icon="fa-paper-plane" title="Send message to group"/>
+                    <button name="sync_group_info" string="Sync Group" type="object" 
+                            class="btn-link" icon="fa-refresh" title="Sync group information"/>
+                    <button name="copy_invite_code" string="Invite Link" type="object" 
+                            class="btn-link" icon="fa-share-alt" title="Open WhatsApp group invite link"
+                            attrs="{'invisible': [('invite_code', '=', False)]}"/>
+                </tree>
+            </field>
+        </record>
+        
+        <!-- Group Form View -->
+        <record id="view_whatsapp_group_form" model="ir.ui.view">
+            <field name="name">whatsapp.group.form</field>
+            <field name="model">whatsapp.group</field>
+            <field name="arch" type="xml">
+                <form>
+                    <header>
+                        <button name="send_message_to_group" string="Send Message" type="object" 
+                                class="btn-success" icon="fa-paper-plane"
+                                attrs="{'invisible': [('group_id', '=', False)]}"/>
+                        <button name="sync_group_info" string="Sync Group" type="object" 
+                                class="btn-primary" icon="fa-refresh"
+                                attrs="{'invisible': [('group_id', '=', False)]}"/>
+                        <button name="generate_invite_code" string="Generate Invite Code" type="object" 
+                                class="btn-info" icon="fa-link"
+                                attrs="{'invisible': ['|', ('group_id', '=', False), ('provider', '!=', 'whapi')]}"/>
+                        <field name="is_active" widget="boolean_toggle"/>
+                    </header>
+                    <sheet>
+                        <div class="oe_button_box" name="button_box">
+                            <button name="action_view_participants" type="object" class="oe_stat_button" icon="fa-users"
+                                    attrs="{'invisible': [('group_id', '=', False)]}">
+                                <field name="participant_count" widget="statinfo" string="Participants"/>
+                            </button>
+                            <button name="action_view_latest_messages" type="object" class="oe_stat_button" icon="fa-comments"
+                                    attrs="{'invisible': [('group_id', '=', False)]}">
+                                <field name="latest_messages_count" widget="statinfo" string="Latest Messages"/>
+                            </button>
+                        </div>
+                        
+                        <!-- Info box for new group creation -->
+                        <div class="alert alert-info" role="alert" attrs="{'invisible': [('group_id', '!=', False)]}">
+                            <strong>Creating New WhatsApp Group</strong><br/>
+                            When you save this form, a real WhatsApp group will be created using the WHAPI service.
+                            Make sure to add participants before saving.
+                        </div>
+                        
+                        <group>
+                            <group name="basic_info">
+                                <field name="name" placeholder="Enter group name (required)"/>
+                                <field name="description" placeholder="Enter group description (optional)"/>
+                                <field name="group_id" readonly="1" attrs="{'invisible': [('group_id', '=', False)]}" required="0"/>
+                                <field name="configuration_id" readonly="1" attrs="{'invisible': [('group_id', '=', False)]}" groups="whatsapp_integration.group_whatsapp_admin"/>
+                                <field name="provider" readonly="1" attrs="{'invisible': [('group_id', '=', False)]}"/>
+                                <field name="invite_code" readonly="1" attrs="{'invisible': ['|', ('provider', '!=', 'whapi'), ('invite_code', '=', False)]}"/>
+                            </group>
+                            <group name="timestamps" attrs="{'invisible': [('group_id', '=', False)]}">
+                                <field name="created_at" readonly="1"/>
+                                <field name="updated_at" readonly="1"/>
+                                <field name="synced_at" readonly="1"/>
+                                <field name="last_message_date" readonly="1"/>
+                                <field name="invite_fetched_at" readonly="1" attrs="{'invisible': [('invite_fetched_at', '=', False)]}"/>
+                            </group>
+                        </group>
+                        
+                        <notebook>
+                            <page string="Participants" name="participants">
+                                <div class="alert alert-info" role="alert" attrs="{'invisible': [('group_id', '!=', False)]}">
+                                    <strong>Select Participants:</strong> Choose WhatsApp contacts to add to the group. 
+                                    If no contacts appear, make sure you have synced your WhatsApp contacts first.
+                                </div>
+                                
+                                <!-- Member Management Buttons -->
+                                <div class="mt16 mb16" attrs="{'invisible': [('group_id', '=', False)]}">
+                                    <button name="%(action_whatsapp_remove_member_wizard)d" string="Remove Members" type="action" 
+                                            class="btn-warning" icon="fa-user-times"
+                                            groups="whatsapp_integration.group_whatsapp_admin"
+                                            help="Open wizard to remove specific members from groups"/>
+                                </div>
+                                
+                                <field name="participant_ids" 
+                                       context="{'search_default_whatsapp_contacts': 1}"
+                                       domain="['|', ('isWAContact', '=', True), ('phone', '!=', False)]"
+                                       options="{'no_create': True}">
+                                    <tree>
+                                        <field name="display_name"/>
+                                        <field name="phone"/>
+                                        <field name="contact_id"/>
+                                        <field name="isWAContact"/>
+                                        <field name="synced_at"/>
+                                    </tree>
+                                </field>
+                            </page>
+                            <page string="Latest Messages" name="messages" attrs="{'invisible': [('group_id', '=', False)]}">
+                                <field name="message_ids" 
+                                       domain="[('created_at', '>=', '2025-07-29')]"
+                                       context="{'order': 'created_at desc'}">
+                                    <tree limit="50" decoration-info="from_me == True" decoration-muted="from_me == False">
+                                        <field name="body"/>
+                                        <field name="from_me"/>
+                                        <field name="message_type"/>
+                                        <field name="status"/>
+                                        <field name="created_at" string="Date"/>
+                                        <field name="contact_id"/>
+                                        <field name="synced_at"/>
+                                    </tree>
+                                </field>
+                            </page>
+                            <page string="Metadata" name="metadata" attrs="{'invisible': [('metadata', '=', False)]}">
+                                <field name="metadata" widget="ace" options="{'mode': 'json'}" readonly="1"/>
+                            </page>
+                        </notebook>
+                    </sheet>
+                </form>
+            </field>
+        </record>
+        
+        <!-- Group Search View -->
+        <record id="view_whatsapp_group_search" model="ir.ui.view">
+            <field name="name">whatsapp.group.search</field>
+            <field name="model">whatsapp.group</field>
+            <field name="arch" type="xml">
+                <search>
+                    <field name="name" string="Group Name"/>
+                    <field name="description" string="Description"/>
+                    <field name="group_id" string="Group ID"/>
+                    <field name="configuration_id" string="Configuration" groups="whatsapp_integration.group_whatsapp_admin"/>
+                    
+                    <filter string="Active" name="active" domain="[('is_active', '=', True)]"/>
+                    <filter string="Inactive" name="inactive" domain="[('is_active', '=', False)]"/>
+                    <separator/>
+                    <filter string="WHAPI Provider" name="whapi" domain="[('provider', '=', 'whapi')]"/>
+                    <filter string="Wassenger Provider" name="wassenger" domain="[('provider', '=', 'wassenger')]"/>
+                    <separator/>
+                    <filter string="Recently Synced" name="recent_sync" 
+                            domain="[('synced_at', '>=', context_today())]"/>
+                    <filter string="Has Participants" name="has_participants" domain="[('participant_ids', '!=', False)]"/>
+                    <filter string="Has Recent Messages" name="has_recent_messages" 
+                            domain="[('latest_messages_count', '>', 0)]"/>
+                    <filter string="Active with Messages" name="active_with_messages" 
+                            domain="[('is_active', '=', True), ('message_count', '>', 0)]"/>
+                    
+                    <group expand="0" string="Group By">
+                        <filter string="Configuration" name="group_configuration" context="{'group_by': 'configuration_id'}" groups="whatsapp_integration.group_whatsapp_admin"/>
+                        <filter string="Status" name="group_status" context="{'group_by': 'is_active'}"/>
+                        <filter string="Provider" name="group_provider" context="{'group_by': 'provider'}"/>
+                        <filter string="Sync Date" name="group_sync_date" context="{'group_by': 'synced_at:day'}"/>
+                    </group>
+                </search>
+            </field>
+        </record>
+        
+        <!-- Group Action -->
+        <record id="action_whatsapp_group" model="ir.actions.act_window">
+            <field name="name">WhatsApp Groups</field>
+            <field name="res_model">whatsapp.group</field>
+            <field name="view_mode">tree,form</field>
+            <field name="search_view_id" ref="view_whatsapp_group_search"/>
+            <field name="context">{'search_default_active': 1, 'create': True}</field>
+        </record>
+    </data>
+</odoo>

@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <!-- Group Invite Page Template -->
+        <template id="group_invite_page" name="WhatsApp Group Invite">
+            <t t-call="web.layout">
+                <t t-set="head">
+                    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+                    <style>
+                        .invite-container {
+                            max-width: 600px;
+                            margin: 50px auto;
+                            padding: 30px;
+                            background: white;
+                            border-radius: 15px;
+                            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+                            text-align: center;
+                        }
+                        .group-icon {
+                            font-size: 80px;
+                            color: #25D366;
+                            margin-bottom: 20px;
+                        }
+                        .group-name {
+                            font-size: 28px;
+                            font-weight: bold;
+                            color: #333;
+                            margin-bottom: 10px;
+                        }
+                        .group-description {
+                            font-size: 16px;
+                            color: #666;
+                            margin-bottom: 30px;
+                            line-height: 1.5;
+                        }
+                        .invite-link-container {
+                            background: #f8f9fa;
+                            border: 2px dashed #25D366;
+                            border-radius: 10px;
+                            padding: 20px;
+                            margin: 30px 0;
+                        }
+                        .invite-link {
+                            font-family: monospace;
+                            font-size: 14px;
+                            color: #333;
+                            word-break: break-all;
+                            background: white;
+                            padding: 10px;
+                            border-radius: 5px;
+                            border: 1px solid #ddd;
+                        }
+                        .whatsapp-btn {
+                            background: #25D366;
+                            color: white;
+                            border: none;
+                            padding: 15px 30px;
+                            font-size: 18px;
+                            border-radius: 25px;
+                            cursor: pointer;
+                            text-decoration: none;
+                            display: inline-block;
+                            margin: 10px;
+                            transition: background 0.3s;
+                        }
+                        .whatsapp-btn:hover {
+                            background: #1da851;
+                            color: white;
+                            text-decoration: none;
+                        }
+                        .group-stats {
+                            display: flex;
+                            justify-content: space-around;
+                            margin: 20px 0;
+                        }
+                        .stat-item {
+                            text-align: center;
+                        }
+                        .stat-number {
+                            font-size: 24px;
+                            font-weight: bold;
+                            color: #25D366;
+                        }
+                        .stat-label {
+                            font-size: 12px;
+                            color: #666;
+                            text-transform: uppercase;
+                        }
+                    </style>
+                </t>
+                <div class="container">
+                    <div class="invite-container">
+                        <div class="group-icon">
+                            <i class="fa fa-users"/>
+                        </div>
+                        
+                        <h1 class="group-name">
+                            <t t-esc="group.name"/>
+                        </h1>
+                        
+                        <t t-if="group.description">
+                            <p class="group-description">
+                                <t t-esc="group.description"/>
+                            </p>
+                        </t>
+                        
+                        <div class="group-stats">
+                            <div class="stat-item">
+                                <div class="stat-number"><t t-esc="group.participant_count"/></div>
+                                <div class="stat-label">Participants</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-number"><t t-esc="group.message_count"/></div>
+                                <div class="stat-label">Messages</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-number"><t t-esc="group.latest_messages_count"/></div>
+                                <div class="stat-label">Recent</div>
+                            </div>
+                        </div>
+                        
+                        <t t-if="group.invite_link">
+                            <div class="invite-link-container">
+                                <h3>Join this WhatsApp Group</h3>
+                                <div class="invite-link" id="inviteLink">
+                                    <t t-esc="group.invite_link"/>
+                                </div>
+                            </div>
+                            
+                            <a t-att-href="group.invite_link" class="whatsapp-btn" target="_blank">
+                                <i class="fa fa-whatsapp"/> Join Group on WhatsApp
+                            </a>
+                        </t>
+                        
+                        <t t-if="not group.invite_link">
+                            <div class="alert alert-warning">
+                                <i class="fa fa-exclamation-triangle"/> 
+                                Invite link not available. Contact the group administrator.
+                            </div>
+                        </t>
+                        
+                        <div style="margin-top: 30px; font-size: 12px; color: #999;">
+                            Group ID: <t t-esc="group.group_id"/>
+                        </div>
+                    </div>
+                </div>
+            </t>
+        </template>
+        
+        <!-- Error Page Template -->
+        <template id="invite_error" name="Invite Error">
+            <t t-call="web.layout">
+                <div class="container">
+                    <div class="invite-container" style="text-align: center; max-width: 400px; margin: 100px auto;">
+                        <div style="font-size: 60px; color: #dc3545; margin-bottom: 20px;">
+                            <i class="fa fa-exclamation-triangle"/>
+                        </div>
+                        <h2>Error</h2>
+                        <p><t t-esc="error_message"/></p>
+                        <a href="/web" class="btn btn-primary">Back to Dashboard</a>
+                    </div>
+                </div>
+            </t>
+        </template>
+    </data>
+</odoo>

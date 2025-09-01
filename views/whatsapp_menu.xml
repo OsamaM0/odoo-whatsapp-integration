@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <!-- Main Menu -->
+        <menuitem id="menu_whatsapp_root" 
+                  name="WhatsApp" 
+                  sequence="10"/>
+        
+        <menuitem id="menu_whatsapp_config" 
+                  name="Configuration" 
+                  parent="menu_whatsapp_root" 
+                  sequence="10" 
+                  groups="group_whatsapp_admin"/>
+        
+        <menuitem id="menu_whatsapp_configuration" 
+                  name="API Configurations" 
+                  parent="menu_whatsapp_config" 
+                  action="action_whatsapp_configuration"
+                  sequence="10"/>
+        
+        <menuitem id="menu_whatsapp_main" 
+                  name="WhatsApp" 
+                  parent="menu_whatsapp_root" 
+                  sequence="20"/>
+        
+        <!-- Sub Menus -->
+        <menuitem id="menu_whatsapp_contacts" 
+                  name="Contacts" 
+                  parent="menu_whatsapp_main" 
+                  action="action_whatsapp_contact"
+                  sequence="10"/>
+        
+        <menuitem id="menu_whatsapp_groups" 
+                  name="Groups" 
+                  parent="menu_whatsapp_main" 
+                  action="action_whatsapp_group"
+                  sequence="20"/>
+        
+        <menuitem id="menu_whatsapp_messages" 
+                  name="Messages" 
+                  parent="menu_whatsapp_main" 
+                  action="action_whatsapp_message"
+                  sequence="30"/>
+        
+        <!-- Sync Menu -->
+        <menuitem id="menu_whatsapp_sync" 
+                  name="Sync Wizard" 
+                  parent="menu_whatsapp_main" 
+                  action="action_whatsapp_sync_wizard"
+                  sequence="40"/>
+        
+        <!-- Sync Service Menu -->
+        <menuitem id="menu_whatsapp_sync_service" 
+                  name="Sync Service" 
+                  parent="menu_whatsapp_main" 
+                  action="whatsapp_sync_service_action"
+                  sequence="50"/>
+    </data>
+</odoo>

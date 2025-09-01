@@ -1,0 +1,16 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_whatsapp_configuration_admin,whatsapp.configuration admin,model_whatsapp_configuration,group_whatsapp_admin,1,1,1,1
+access_whatsapp_configuration_user,whatsapp.configuration user,model_whatsapp_configuration,group_whatsapp_user,1,0,0,0
+access_whatsapp_contact_admin,whatsapp.contact admin,model_whatsapp_contact,group_whatsapp_admin,1,1,1,1
+access_whatsapp_contact_user,whatsapp.contact user,model_whatsapp_contact,group_whatsapp_user,1,1,1,0
+access_whatsapp_group_admin,whatsapp.group admin,model_whatsapp_group,group_whatsapp_admin,1,1,1,1
+access_whatsapp_group_user,whatsapp.group user,model_whatsapp_group,group_whatsapp_user,1,1,1,0
+access_whatsapp_message_admin,whatsapp.message admin,model_whatsapp_message,group_whatsapp_admin,1,1,1,1
+access_whatsapp_message_user,whatsapp.message user,model_whatsapp_message,group_whatsapp_user,1,1,1,0
+access_whatsapp_sync_service_admin,whatsapp.sync.service admin,model_whatsapp_sync_service,group_whatsapp_admin,1,1,1,1
+access_whatsapp_sync_service_user,whatsapp.sync.service user,model_whatsapp_sync_service,group_whatsapp_user,1,1,0,0
+access_whatsapp_send_message_wizard_admin,whatsapp.send.message.wizard admin,model_whatsapp_send_message_wizard,group_whatsapp_admin,1,1,1,1
+access_whatsapp_send_message_wizard_user,whatsapp.send.message.wizard user,model_whatsapp_send_message_wizard,group_whatsapp_user,1,1,1,1
+access_whatsapp_sync_wizard_admin,whatsapp.sync.wizard admin,model_whatsapp_sync_wizard,group_whatsapp_admin,1,1,1,1
+access_whatsapp_sync_wizard_user,whatsapp.sync.wizard user,model_whatsapp_sync_wizard,group_whatsapp_user,1,1,1,1
+access_whatsapp_remove_member_wizard,whatsapp.remove.member.wizard,model_whatsapp_remove_member_wizard,group_whatsapp_admin,1,1,1,1

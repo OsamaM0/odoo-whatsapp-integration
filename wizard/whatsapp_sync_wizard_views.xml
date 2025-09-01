@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <!-- Sync Wizard Form View -->
+        <record id="view_whatsapp_sync_wizard_form" model="ir.ui.view">
+            <field name="name">whatsapp.sync.wizard.form</field>
+            <field name="model">whatsapp.sync.wizard</field>
+            <field name="arch" type="xml">
+                <form string="WhatsApp Sync Wizard">
+                    <header>
+                        <button name="action_start_sync" string="Start Sync" type="object" 
+                                class="btn-primary" attrs="{'invisible': [('is_syncing', '=', True)]}"/>
+                        <button name="action_close" string="Close" type="object" 
+                                class="btn-secondary" attrs="{'invisible': [('is_syncing', '=', True)]}"/>
+                    </header>
+                    <sheet>
+                        <div class="oe_title">
+                            <h1>WhatsApp Data Synchronization</h1>
+                        </div>
+                        
+                        <!-- Configuration Info Section -->
+                        <div class="alert alert-info" role="alert">
+                            <strong>Configuration:</strong> The sync will use your assigned WhatsApp configuration automatically.
+                            <br/>
+                            <strong>Provider:</strong> Data will be synced from your assigned API provider.
+                        </div>
+                        
+                        <group attrs="{'invisible': [('is_syncing', '=', True)]}">
+                            <group>
+                                <field name="sync_type"/>
+                            </group>
+                            <group attrs="{'invisible': [('sync_type', '!=', 'custom')]}">
+                                <field name="sync_contacts"/>
+                                <field name="sync_groups"/>
+                                <field name="sync_messages"/>
+                                <field name="sync_group_members"/>
+                            </group>
+                        </group>
+                        
+                        <!-- Progress Section -->
+                        <group attrs="{'invisible': [('is_syncing', '=', False)]}">
+                            <field name="current_operation"/>
+                            <field name="progress" widget="progressbar"/>
+                        </group>
+                        
+                        <!-- Results Section -->
+                        <group attrs="{'invisible': [('progress', '&lt;', 100)]}">
+                            <group string="Sync Results">
+                                <field name="contacts_synced"/>
+                                <field name="groups_synced"/>
+                                <field name="messages_synced"/>
+                                <field name="group_members_synced"/>
+                                <field name="errors_count"/>
+                            </group>
+                        </group>
+                        
+                        <!-- Error Details -->
+                        <group attrs="{'invisible': [('error_messages', '=', False)]}">
+                            <field name="error_messages" nolabel="1"/>
+                        </group>
+                        
+                        <field name="is_syncing" invisible="1"/>
+                    </sheet>
+                </form>
+            </field>
+        </record>
+        
+        <!-- Sync Wizard Action -->
+        <record id="action_whatsapp_sync_wizard" model="ir.actions.act_window">
+            <field name="name">WhatsApp Sync Wizard</field>
+            <field name="res_model">whatsapp.sync.wizard</field>
+            <field name="view_mode">form</field>
+            <field name="target">new</field>
+        </record>
+    </data>
+</odoo>

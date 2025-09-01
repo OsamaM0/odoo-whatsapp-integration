@@ -1,0 +1,151 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <!-- Message Action (moved to top to avoid reference issues) -->
+        <record id="action_whatsapp_message" model="ir.actions.act_window">
+            <field name="name">WhatsApp Messages</field>
+            <field name="res_model">whatsapp.message</field>
+            <field name="view_mode">tree,form</field>
+        </record>
+        
+        <!-- Message Tree View -->
+        <record id="view_whatsapp_message_tree" model="ir.ui.view">
+            <field name="name">whatsapp.message.tree</field>
+            <field name="model">whatsapp.message</field>
+            <field name="arch" type="xml">
+                <tree decoration-success="status == 'delivered'" 
+                      decoration-info="status == 'sent'" 
+                      decoration-warning="status == 'pending'"
+                      decoration-danger="status == 'failed'">
+                    <field name="body"/>
+                    <field name="message_type"/>
+                    <field name="status"/>
+                    <field name="from_me"/>
+                    <field name="sender_link" string="Sender"/>
+                    <field name="chat_id"/>
+                    <field name="configuration_id" groups="whatsapp_integration.group_whatsapp_admin"/>
+                    <field name="created_at" string="Date"/>
+                    <field name="provider"/>
+                    <!-- Hidden fields for computed fields -->
+                    <field name="group_id" invisible="1"/>
+                    <field name="contact_id" invisible="1"/>
+                    <field name="metadata" invisible="1"/>
+                    <button name="sync_message_status" string="Sync Status" type="object" 
+                            class="btn-link" icon="fa-refresh" title="Sync message status"/>
+                </tree>
+            </field>
+        </record>
+        
+        <!-- Message Form View -->
+        <record id="view_whatsapp_message_form" model="ir.ui.view">
+            <field name="name">whatsapp.message.form</field>
+            <field name="model">whatsapp.message</field>
+            <field name="arch" type="xml">
+                <form>
+                    <header>
+                        <button name="sync_message_status" string="Sync Status" type="object" 
+                                class="btn-primary" icon="fa-refresh"/>
+                        <field name="status" widget="statusbar" statusbar_visible="pending,sent,delivered,read"/>
+                    </header>
+                    <sheet>
+                        <widget name="web_ribbon" title="Failed" bg_color="bg-danger" 
+                                attrs="{'invisible': [('status', '!=', 'failed')]}"/>
+                        <widget name="web_ribbon" title="Delivered" bg_color="bg-success" 
+                                attrs="{'invisible': [('status', '!=', 'delivered')]}"/>
+                        <widget name="web_ribbon" title="From Me" bg_color="bg-info" 
+                                attrs="{'invisible': [('from_me', '=', False)]}"/>
+                        
+                        <group>
+                            <group name="basic_info">
+                                <field name="message_id" readonly="1"/>
+                                <field name="body"/>
+                                <field name="message_type"/>
+                                <field name="from_me"/>
+                                <field name="configuration_id" readonly="1" groups="whatsapp_integration.group_whatsapp_admin"/>
+                                <field name="provider" readonly="1"/>
+                            </group>
+                            <group name="chat_info">
+                                <field name="sender_link" string="Sender"/>
+                                <field name="chat_id" readonly="1"/>
+                                <field name="contact_id"/>
+                                <field name="group_id"/>
+                                <field name="created_at" string="Date Created" readonly="1"/>
+                            </group>
+                        </group>
+                        
+                        <group string="Media" attrs="{'invisible': [('media_url', '=', False)]}">
+                            <field name="media_url"/>
+                            <field name="media_type"/>
+                            <field name="caption"/>
+                        </group>
+                        
+                        <group string="Metadata" attrs="{'invisible': [('metadata', '=', False)]}">
+                            <field name="metadata" widget="ace" options="{'mode': 'json'}" readonly="1"/>
+                        </group>
+                        
+                        <group string="Timestamps">
+                            <group>
+                                <field name="created_at" readonly="1"/>
+                                <field name="updated_at" readonly="1"/>
+                                <field name="synced_at" readonly="1"/>
+                            </group>
+                        </group>
+                    </sheet>
+                </form>
+            </field>
+        </record>
+        
+        <!-- Message Search View -->
+        <record id="view_whatsapp_message_search" model="ir.ui.view">
+            <field name="name">whatsapp.message.search</field>
+            <field name="model">whatsapp.message</field>
+            <field name="arch" type="xml">
+                <search>
+                    <field name="body" string="Content"/>
+                    <field name="message_id" string="Message ID"/>
+                    <field name="chat_id" string="Chat ID"/>
+                    <field name="contact_id" string="Contact"/>
+                    <field name="group_id" string="Group"/>
+                    <field name="configuration_id" string="Configuration" groups="whatsapp_integration.group_whatsapp_admin"/>
+                    
+                    <filter string="From Me" name="from_me" domain="[('from_me', '=', True)]"/>
+                    <filter string="To Me" name="to_me" domain="[('from_me', '=', False)]"/>
+                    <separator/>
+                    <filter string="Pending" name="pending" domain="[('status', '=', 'pending')]"/>
+                    <filter string="Sent" name="sent" domain="[('status', '=', 'sent')]"/>
+                    <filter string="Delivered" name="delivered" domain="[('status', '=', 'delivered')]"/>
+                    <filter string="Read" name="read" domain="[('status', '=', 'read')]"/>
+                    <filter string="Failed" name="failed" domain="[('status', '=', 'failed')]"/>
+                    <separator/>
+                    <filter string="Text Messages" name="text" domain="[('message_type', '=', 'text')]"/>
+                    <filter string="Media Messages" name="media" domain="[('message_type', '!=', 'text')]"/>
+                    <filter string="Group Messages" name="group_messages" domain="[('group_id', '!=', False)]"/>
+                    <separator/>
+                    <filter string="WHAPI Provider" name="whapi" domain="[('provider', '=', 'whapi')]"/>
+                    <filter string="Wassenger Provider" name="wassenger" domain="[('provider', '=', 'wassenger')]"/>
+                    <separator/>
+                    <filter string="Today" name="today" 
+                            domain="[('created_at', '>=', context_today())]"/>
+                    <filter string="This Week" name="this_week" 
+                            domain="[('created_at', '>=', '2025-08-22')]"/>
+                    
+                    <group expand="0" string="Group By">
+                        <filter string="Configuration" name="group_configuration" context="{'group_by': 'configuration_id'}" groups="whatsapp_integration.group_whatsapp_admin"/>
+                        <filter string="Status" name="group_status" context="{'group_by': 'status'}"/>
+                        <filter string="Type" name="group_type" context="{'group_by': 'message_type'}"/>
+                        <filter string="From Me" name="group_from_me" context="{'group_by': 'from_me'}"/>
+                        <filter string="Contact" name="group_contact" context="{'group_by': 'contact_id'}"/>
+                        <filter string="Group" name="group_group" context="{'group_by': 'group_id'}"/>
+                        <filter string="Provider" name="group_provider" context="{'group_by': 'provider'}"/>
+                        <filter string="Date" name="group_date" context="{'group_by': 'created_at:day'}"/>
+                    </group>
+                </search>
+            </field>
+        </record>
+        
+        <!-- Update action to reference search view -->
+        <record id="action_whatsapp_message" model="ir.actions.act_window">
+            <field name="search_view_id" ref="view_whatsapp_message_search"/>
+        </record>
+    </data>
+</odoo>
