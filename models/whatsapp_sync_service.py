@@ -184,9 +184,12 @@ for config in configs:
                     # Sync groups with transaction isolation
                     try:
                         with self.env.cr.savepoint():
-                            groups_synced = sync_env['whatsapp.group'].sync_all_groups_from_api()
-                            total_groups += groups_synced
-                            _logger.info(f"Synced {groups_synced} groups for config {config.name}")
+                            groups_result = sync_env['whatsapp.group'].sync_all_groups_from_api()
+                            if groups_result.get('success'):
+                                total_groups += groups_result.get('count', 0)
+                                _logger.info(f"Synced {groups_result.get('count', 0)} groups for config {config.name}")
+                            else:
+                                errors.append(f"Config {config.name} - Groups: {groups_result.get('message', 'Unknown error')}")
                     except Exception as e:
                         _logger.error(f"Error syncing groups for config {config.name}: {str(e)}")
                         errors.append(f"Config {config.name} - Groups error: {str(e)}")

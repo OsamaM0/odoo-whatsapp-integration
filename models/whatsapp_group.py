@@ -709,10 +709,20 @@ class WhatsAppGroup(models.Model):
                     
                     existing.write(update_vals)
             
-            return synced_count
+            return {
+                'success': True,
+                'synced_count': synced_count,
+                'count': synced_count,
+                'message': f'Synced {synced_count} groups successfully'
+            }
         except Exception as e:
             _logger.error(f"Error syncing groups: {e}")
-            return 0
+            return {
+                'success': False,
+                'synced_count': 0,
+                'count': 0,
+                'message': f'Group sync failed: {str(e)}'
+            }
 
     @api.model
     def sync_all_group_members_from_api(self):
@@ -788,7 +798,9 @@ class WhatsAppGroup(models.Model):
                     error_count += 1
             
             return {
+                'success': True,
                 'synced_count': synced_count,
+                'count': synced_count,  # Add count field for compatibility
                 'error_count': error_count,
                 'message': f'Synced {synced_count} groups with {error_count} errors'
             }
@@ -796,7 +808,9 @@ class WhatsAppGroup(models.Model):
         except Exception as e:
             _logger.error(f"Group members sync failed: {e}")
             return {
+                'success': False,
                 'synced_count': 0,
+                'count': 0,  # Add count field for compatibility
                 'error_count': 1,
                 'message': f'Sync failed: {str(e)}'
             }
