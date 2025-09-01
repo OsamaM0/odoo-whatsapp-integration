@@ -17,6 +17,18 @@ class WhatsAppSyncService(models.Model):
     ], string='Sync Status', default='idle')
     last_sync_message = fields.Text('Last Sync Message')
 
+    def _safe_sync_operation(self, operation_name, sync_function, *args, **kwargs):
+        """Execute a sync operation with proper transaction isolation and error handling."""
+        try:
+            with self.env.cr.savepoint():
+                result = sync_function(*args, **kwargs)
+                _logger.info(f"{operation_name} completed successfully")
+                return {'success': True, 'result': result, 'error': None}
+        except Exception as e:
+            error_msg = f"{operation_name} failed: {str(e)}"
+            _logger.error(error_msg)
+            return {'success': False, 'result': None, 'error': error_msg}
+
     def _create_cron_jobs(self):
         """Create cron jobs programmatically to avoid XML schema issues"""
         try:
@@ -69,10 +81,35 @@ configs = env['whatsapp.configuration'].search([('active', '=', True)])
 for config in configs:
     sync_env = env.with_context(whatsapp_config_id=config.id, skip_config_filter=True)
     try:
-        sync_env['whatsapp.message'].sync_all_messages_from_api(count=200)
-        sync_env['whatsapp.contact'].sync_all_contacts_from_api()
-        sync_env['whatsapp.group'].sync_all_groups_from_api()
-        sync_env['whatsapp.group'].sync_all_group_members_from_api()
+        # Sync each data type with transaction isolation to prevent cascade failures
+        try:
+            with env.cr.savepoint():
+                sync_env['whatsapp.message'].sync_all_messages_from_api(count=200)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Daily sync - Messages error for config {config.name}: {str(e)}")
+        
+        try:
+            with env.cr.savepoint():
+                sync_env['whatsapp.contact'].sync_all_contacts_from_api()
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Daily sync - Contacts error for config {config.name}: {str(e)}")
+        
+        try:
+            with env.cr.savepoint():
+                sync_env['whatsapp.group'].sync_all_groups_from_api()
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Daily sync - Groups error for config {config.name}: {str(e)}")
+        
+        try:
+            with env.cr.savepoint():
+                sync_env['whatsapp.group'].sync_all_group_members_from_api()
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Daily sync - Group members error for config {config.name}: {str(e)}")
+            
     except Exception as e:
         import logging
         logging.getLogger(__name__).error(f"Daily sync error for config {config.name}: {str(e)}")"""
@@ -131,47 +168,51 @@ for config in configs:
                     # For now, sync without specific context to avoid compatibility issues
                     sync_env = self.env
                     
-                    # Sync contacts
+                    # Sync contacts with transaction isolation
                     try:
-                        contact_result = sync_env['whatsapp.contact'].sync_all_contacts_from_api()
-                        if contact_result.get('success'):
-                            total_contacts += contact_result.get('count', 0)
-                            _logger.info(f"Synced {contact_result.get('count', 0)} contacts for config {config.name}")
-                        else:
-                            errors.append(f"Config {config.name} - Contacts: {contact_result.get('message', 'Unknown error')}")
+                        with self.env.cr.savepoint():
+                            contact_result = sync_env['whatsapp.contact'].sync_all_contacts_from_api()
+                            if contact_result.get('success'):
+                                total_contacts += contact_result.get('count', 0)
+                                _logger.info(f"Synced {contact_result.get('count', 0)} contacts for config {config.name}")
+                            else:
+                                errors.append(f"Config {config.name} - Contacts: {contact_result.get('message', 'Unknown error')}")
                     except Exception as e:
                         _logger.error(f"Error syncing contacts for config {config.name}: {str(e)}")
                         errors.append(f"Config {config.name} - Contacts error: {str(e)}")
                     
-                    # Sync groups
+                    # Sync groups with transaction isolation
                     try:
-                        groups_synced = sync_env['whatsapp.group'].sync_all_groups_from_api()
-                        total_groups += groups_synced
-                        _logger.info(f"Synced {groups_synced} groups for config {config.name}")
+                        with self.env.cr.savepoint():
+                            groups_synced = sync_env['whatsapp.group'].sync_all_groups_from_api()
+                            total_groups += groups_synced
+                            _logger.info(f"Synced {groups_synced} groups for config {config.name}")
                     except Exception as e:
                         _logger.error(f"Error syncing groups for config {config.name}: {str(e)}")
                         errors.append(f"Config {config.name} - Groups error: {str(e)}")
                     
-                    # Sync messages
+                    # Sync messages with transaction isolation
                     try:
-                        message_result = sync_env['whatsapp.message'].sync_all_messages_from_api(count=50)
-                        if message_result.get('success'):
-                            total_messages += message_result.get('count', 0)
-                            _logger.info(f"Synced {message_result.get('count', 0)} messages for config {config.name}")
-                        else:
-                            errors.append(f"Config {config.name} - Messages: {message_result.get('message', 'Unknown error')}")
+                        with self.env.cr.savepoint():
+                            message_result = sync_env['whatsapp.message'].sync_all_messages_from_api(count=50)
+                            if message_result.get('success'):
+                                total_messages += message_result.get('count', 0)
+                                _logger.info(f"Synced {message_result.get('count', 0)} messages for config {config.name}")
+                            else:
+                                errors.append(f"Config {config.name} - Messages: {message_result.get('message', 'Unknown error')}")
                     except Exception as e:
                         _logger.error(f"Error syncing messages for config {config.name}: {str(e)}")
                         errors.append(f"Config {config.name} - Messages error: {str(e)}")
                     
-                    # Sync group members
+                    # Sync group members with transaction isolation
                     try:
-                        member_result = sync_env['whatsapp.group'].sync_all_group_members_from_api()
-                        if member_result.get('success'):
-                            total_group_members += member_result.get('count', 0)
-                            _logger.info(f"Synced {member_result.get('count', 0)} group members for config {config.name}")
-                        else:
-                            errors.append(f"Config {config.name} - Group members: {member_result.get('message', 'Unknown error')}")
+                        with self.env.cr.savepoint():
+                            member_result = sync_env['whatsapp.group'].sync_all_group_members_from_api()
+                            if member_result.get('success'):
+                                total_group_members += member_result.get('count', 0)
+                                _logger.info(f"Synced {member_result.get('count', 0)} group members for config {config.name}")
+                            else:
+                                errors.append(f"Config {config.name} - Group members: {member_result.get('message', 'Unknown error')}")
                     except Exception as e:
                         _logger.error(f"Error syncing group members for config {config.name}: {str(e)}")
                         errors.append(f"Config {config.name} - Group members error: {str(e)}")
@@ -200,17 +241,19 @@ for config in configs:
             
         except Exception as e:
             _logger.error(f"Critical error in automated sync: {str(e)}")
-            # Try to update sync service with error
+            # Try to update sync service with error using a new transaction
             try:
-                sync_service = self.search([], limit=1)
-                if not sync_service:
-                    sync_service = self.create({'name': 'WhatsApp Auto Sync'})
-                sync_service.write({
-                    'last_sync_time': fields.Datetime.now(),
-                    'sync_status': 'error',
-                    'last_sync_message': f"Critical sync error: {str(e)}"
-                })
-            except:
+                with self.env.cr.savepoint():
+                    sync_service = self.search([], limit=1)
+                    if not sync_service:
+                        sync_service = self.create({'name': 'WhatsApp Auto Sync'})
+                    sync_service.write({
+                        'last_sync_time': fields.Datetime.now(),
+                        'sync_status': 'error',
+                        'last_sync_message': f"Critical sync error: {str(e)}"
+                    })
+            except Exception as nested_e:
+                _logger.error(f"Failed to update sync service with error: {str(nested_e)}")
                 pass
     
     def manual_sync_all_data(self):

@@ -369,9 +369,11 @@ class WhatsAppMessage(models.Model):
                         try:
                             if msg.get('type') not in allowed_types:
                                 continue
-                            created = self.create_from_api_data(msg, 'whapi')
-                            if created:
-                                synced_count += 1
+                            # Use savepoint for each message to isolate transaction errors
+                            with self.env.cr.savepoint():
+                                created = self.create_from_api_data(msg, 'whapi')
+                                if created:
+                                    synced_count += 1
                         except Exception as e:
                             _logger.error(f"Failed to create message {msg.get('id')}: {e}")
                             error_count += 1
