@@ -763,24 +763,30 @@ class WhatsAppGroup(models.Model):
                                 if not contact_id:
                                     continue
                                     
-                                # Find or create contact
+                                # Find existing contact first
                                 contact = self.env['whatsapp.contact'].search([
                                     ('contact_id', '=', contact_id)
                                 ], limit=1)
                                 
                                 if not contact:
-                                    # Create new contact - group participants are chat contacts
-                                    contact_data = {
-                                        'contact_id': contact_id,
-                                        'name': participant.get('name', ''),
-                                        'pushname': participant.get('pushname', ''),
-                                        'phone': participant.get('phone', ''),
-                                        'provider': provider,
-                                        'synced_at': fields.Datetime.now(),
-                                        'is_chat_contact': True,  # Group participants are chat contacts
-                                        'is_phone_contact': False,  # Unless we sync from phone contacts
-                                    }
-                                    contact = self.env['whatsapp.contact'].create(contact_data)
+                                    # Create new contact with safe transaction handling
+                                    try:
+                                        with self.env.cr.savepoint():
+                                            contact_data = {
+                                                'contact_id': contact_id,
+                                                'name': participant.get('name', '') or contact_id,
+                                                'pushname': participant.get('pushname', ''),
+                                                'phone': participant.get('phone', ''),
+                                                'provider': provider,
+                                                'synced_at': fields.Datetime.now(),
+                                                'is_chat_contact': True,  # Group participants are chat contacts
+                                                'is_phone_contact': False,  # Unless we sync from phone contacts
+                                            }
+                                            contact = self.env['whatsapp.contact'].create(contact_data)
+                                    except Exception as contact_error:
+                                        _logger.warning(f"Failed to create contact {contact_id} for group {group.name}: {contact_error}")
+                                        # Continue without this contact rather than failing the whole group
+                                        continue
                                 
                                 if contact:
                                     participant_contacts.append(contact.id)

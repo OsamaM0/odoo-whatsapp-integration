@@ -213,7 +213,7 @@ class WhatsAppMessage(models.Model):
             if group:
                 vals['group_id'] = group.id
         else:
-            # Individual message - find or create contact
+            # Individual message - find existing contact only, don't create
             phone = chat_id.replace('@s.whatsapp.net', '')
             contact = self.env['whatsapp.contact'].search([
                 '|', ('contact_id', '=', chat_id), ('phone', '=', phone)
@@ -221,26 +221,15 @@ class WhatsAppMessage(models.Model):
             if contact:
                 vals['contact_id'] = contact.id
         
-        # For incoming messages, also try to link sender contact
+        # For incoming messages, try to link sender contact but don't create new ones
         if not from_me and provider == 'whapi':
             sender_phone = api_data.get('from', '')
             if sender_phone and sender_phone != chat_id:  # Avoid duplicate linking for individual chats
                 sender_contact = self.env['whatsapp.contact'].search([
                     '|', ('contact_id', '=', sender_phone), ('phone', '=', sender_phone)
                 ], limit=1)
-                if not sender_contact and sender_phone.replace('@s.whatsapp.net', '').isdigit():
-                    # Create new contact for unknown sender
-                    try:
-                        clean_phone = sender_phone.replace('@s.whatsapp.net', '')
-                        sender_contact = self.env['whatsapp.contact'].create({
-                            'contact_id': sender_phone,
-                            'phone': clean_phone,
-                            'name': clean_phone,  # Will be updated when contact sync runs
-                            'provider': provider,
-                            'isWAContact': True,
-                        })
-                    except Exception as e:
-                        _logger.warning(f"Failed to create contact for sender {sender_phone}: {e}")
+                # Don't create new contacts during message sync - let contact sync handle this
+                # This prevents transaction conflicts during bulk message sync
                 
                 # Link sender contact if we have it and it's different from chat contact
                 if sender_contact and not vals.get('contact_id'):
@@ -343,48 +332,59 @@ class WhatsAppMessage(models.Model):
             for from_me_value in [False, True]:  # Get messages from others, then my messages
                 _logger.info(f"Syncing messages with from_me={from_me_value}")
                 
-                offset = 0
-                synced_count = 0
-                error_count = 0
+                try:
+                    offset = 0
+                    synced_count = 0
+                    error_count = 0
 
-                while True:
-                    page = api_service.get_messages(
-                        count=count,
-                        offset=offset,
-                        time_from=time_from,
-                        time_to=time_to,
-                        from_me=from_me_value,
-                        normal_types=normal_types,
-                        sort=sort,
-                    )
-                    messages = page.get('messages', [])
-                    page_count = page.get('count', len(messages))
-                    page_total = page.get('total', 0)
-                    
-                    if from_me_value == False:  # Only count total once
-                        total_messages += page_total
-
-                    allowed_types = {'text', 'image', 'video', 'gif', 'audio', 'voice', 'document'}
-                    for msg in messages:
+                    while True:
                         try:
-                            if msg.get('type') not in allowed_types:
-                                continue
-                            # Use savepoint for each message to isolate transaction errors
-                            with self.env.cr.savepoint():
-                                created = self.create_from_api_data(msg, 'whapi')
-                                if created:
-                                    synced_count += 1
-                        except Exception as e:
-                            _logger.error(f"Failed to create message {msg.get('id')}: {e}")
+                            page = api_service.get_messages(
+                                count=count,
+                                offset=offset,
+                                time_from=time_from,
+                                time_to=time_to,
+                                from_me=from_me_value,
+                                normal_types=normal_types,
+                                sort=sort,
+                            )
+                        except Exception as api_error:
+                            _logger.error(f"API error getting messages page (offset={offset}): {api_error}")
                             error_count += 1
+                            break
+                            
+                        messages = page.get('messages', [])
+                        page_count = page.get('count', len(messages))
+                        page_total = page.get('total', 0)
+                        
+                        if from_me_value == False:  # Only count total once
+                            total_messages += page_total
 
-                    # Advance pagination
-                    if not messages:
-                        break
-                    offset += page_count or len(messages)
-                    if page_total is not None and offset >= page_total:
-                        break
+                        allowed_types = {'text', 'image', 'video', 'gif', 'audio', 'voice', 'document'}
+                        for msg in messages:
+                            try:
+                                if msg.get('type') not in allowed_types:
+                                    continue
+                                # Use savepoint for each message to isolate transaction errors
+                                with self.env.cr.savepoint():
+                                    created = self.create_from_api_data(msg, 'whapi')
+                                    if created:
+                                        synced_count += 1
+                            except Exception as e:
+                                _logger.error(f"Failed to create message {msg.get('id')}: {e}")
+                                error_count += 1
 
+                        # Advance pagination
+                        if not messages:
+                            break
+                        offset += page_count or len(messages)
+                        if page_total is not None and offset >= page_total:
+                            break
+
+                except Exception as direction_error:
+                    _logger.error(f"Error syncing messages with from_me={from_me_value}: {direction_error}")
+                    error_count += 1
+                
                 total_synced += synced_count
                 total_errors += error_count
                 _logger.info(f"Synced {synced_count} messages with from_me={from_me_value}")
@@ -403,6 +403,7 @@ class WhatsAppMessage(models.Model):
             return {
                 'success': False,
                 'synced_count': 0,
+                'count': 0,
                 'error_count': 1,
                 'message': f'Sync failed: {str(e)}'
             }
