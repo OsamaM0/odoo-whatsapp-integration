@@ -1193,53 +1193,6 @@ class WhatsAppSyncWizard(models.TransientModel):
         
         return vals
 
-    def action_check_group_participants(self):
-        """Diagnostic method to check group participant assignments"""
-        config = self.env['whatsapp.configuration'].get_user_configuration()
-        if not config:
-            return {
-                'type': 'ir.actions.client',
-                'tag': 'display_notification',
-                'params': {
-                    'title': 'No Configuration',
-                    'message': 'No accessible WhatsApp configuration found',
-                    'type': 'warning',
-                }
-            }
-        
-        groups = self.env['whatsapp.group'].search([
-            ('is_active', '=', True),
-            ('configuration_id', '=', config.id)
-        ])
-        
-        message_lines = []
-        groups_with_participants = 0
-        groups_without_participants = 0
-        
-        for group in groups[:10]:  # Check first 10 groups
-            participant_count = len(group.participant_ids)
-            if participant_count > 0:
-                groups_with_participants += 1
-                message_lines.append(f"✓ {group.name}: {participant_count} participants")
-            else:
-                groups_without_participants += 1
-                message_lines.append(f"✗ {group.name}: No participants")
-        
-        message = f"Group Participant Check:\n\n"
-        message += f"Groups with participants: {groups_with_participants}\n"
-        message += f"Groups without participants: {groups_without_participants}\n\n"
-        message += "Sample (first 10 groups):\n" + "\n".join(message_lines)
-        
-        return {
-            'type': 'ir.actions.client',
-            'tag': 'display_notification',
-            'params': {
-                'title': 'Group Participants Check',
-                'message': message,
-                'type': 'info',
-            }
-        }
-
     def action_close(self):
         """Close the wizard"""
         return {'type': 'ir.actions.act_window_close'}

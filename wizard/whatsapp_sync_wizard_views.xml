@@ -10,8 +10,6 @@
                     <header>
                         <button name="action_start_sync" string="Start Sync" type="object" 
                                 class="btn-primary" attrs="{'invisible': [('is_syncing', '=', True)]}"/>
-                        <button name="action_check_group_participants" string="Check Group Participants" type="object" 
-                                class="btn-secondary" attrs="{'invisible': [('is_syncing', '=', True)]}"/>
                         <button name="action_close" string="Close" type="object" 
                                 class="btn-secondary" attrs="{'invisible': [('is_syncing', '=', True)]}"/>
                     </header>
