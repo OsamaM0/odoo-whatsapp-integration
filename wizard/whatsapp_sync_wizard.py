@@ -202,8 +202,8 @@ class WhatsAppSyncWizard(models.TransientModel):
                     errors.append(f"Group members sync error: {str(e)}")
                     errors_count += 1
             
-            # Complete sync - update wizard record once at the end
-            try:
+            # Complete sync - update wizard record once at the end with transaction recovery
+            def _update_final_state():
                 self.write({
                     'is_syncing': False,
                     'progress': 100.0,
@@ -215,6 +215,11 @@ class WhatsAppSyncWizard(models.TransientModel):
                     'errors_count': errors_count,
                     'error_messages': '\n'.join(errors) if errors else False,
                 })
+                self._safe_commit()
+                return True
+            
+            try:
+                self._safe_execute(_update_final_state)
             except Exception as write_error:
                 _logger.error(f"Failed to update final wizard state: {write_error}")
             
@@ -269,14 +274,92 @@ class WhatsAppSyncWizard(models.TransientModel):
             return False
     
     def _safe_commit(self):
-        """Safely commit only if not in a savepoint"""
+        """Safely commit only if not in a savepoint with transaction recovery"""
         try:
+            # First recover transaction if needed
+            if not self._recover_transaction():
+                _logger.warning("Could not recover transaction for commit")
+                return False
+            
             if not self._is_in_transaction():
                 self.env.cr.commit()
-            return True
+                return True
+            else:
+                _logger.debug("Skipping commit - currently in savepoint")
+                return True
         except Exception as e:
             _logger.warning(f"Safe commit failed: {e}")
+            # Try to recover from aborted transaction
+            if "current transaction is aborted" in str(e):
+                try:
+                    self.env.cr.rollback()
+                    _logger.info("Rolled back aborted transaction during commit")
+                    return True
+                except Exception as rollback_error:
+                    _logger.error(f"Failed to rollback during commit: {rollback_error}")
             return False
+    
+    def _recover_transaction(self):
+        """Recover from an aborted transaction state"""
+        try:
+            # Check if transaction is in aborted state
+            self.env.cr.execute("SELECT 1")
+            return True  # Transaction is healthy
+        except Exception as e:
+            if "current transaction is aborted" in str(e):
+                _logger.warning("Transaction is aborted, attempting recovery...")
+                try:
+                    # Rollback the entire transaction
+                    self.env.cr.rollback()
+                    _logger.info("Transaction successfully rolled back")
+                    return True
+                except Exception as rollback_error:
+                    _logger.error(f"Failed to rollback transaction: {rollback_error}")
+                    # Last resort: close and reopen the cursor
+                    try:
+                        old_cr = self.env.cr
+                        # Create a new cursor from the database
+                        new_cr = self.env.registry.cursor()
+                        # Replace the cursor in environment
+                        self.env = self.env(cr=new_cr)
+                        # Close the old cursor
+                        old_cr.close()
+                        _logger.info("Transaction recovered with new cursor")
+                        return True
+                    except Exception as cursor_error:
+                        _logger.error(f"Failed to create new cursor: {cursor_error}")
+                        return False
+            else:
+                _logger.error(f"Transaction check failed with non-abort error: {e}")
+                return False
+    
+    def _safe_execute(self, operation_func, *args, **kwargs):
+        """Safely execute an operation with transaction recovery"""
+        max_retries = 3
+        retry_count = 0
+        
+        while retry_count < max_retries:
+            try:
+                # Check and recover transaction if needed
+                if not self._recover_transaction():
+                    raise Exception("Failed to recover transaction state")
+                
+                # Execute the operation
+                return operation_func(*args, **kwargs)
+                
+            except Exception as e:
+                retry_count += 1
+                _logger.warning(f"Operation failed (attempt {retry_count}/{max_retries}): {e}")
+                
+                if retry_count >= max_retries:
+                    _logger.error(f"Operation failed after {max_retries} attempts")
+                    raise e
+                
+                # Wait before retry
+                import time
+                time.sleep(1)
+        
+        return None
     
     def _check_timeout(self, start_time, timeout_seconds):
         """Check if operation has exceeded timeout"""
@@ -309,15 +392,19 @@ class WhatsAppSyncWizard(models.TransientModel):
             return False
     
     def _update_progress(self, step, total_steps, operation):
-        """Update progress tracking"""
+        """Update progress tracking with transaction recovery"""
         progress = (step / total_steps) * 100 if total_steps > 0 else 0
-        try:
+        
+        def _do_update():
             self.write({
                 'progress': progress,
                 'current_operation': operation,
             })
-            # Use safe commit method
             self._safe_commit()
+            return True
+        
+        try:
+            self._safe_execute(_do_update)
         except Exception as e:
             _logger.warning(f"Failed to update progress: {e}")
             # Continue without failing the sync
@@ -794,29 +881,29 @@ class WhatsAppSyncWizard(models.TransientModel):
                     continue
                 
                 try:
-                    # Use individual savepoint for each group to prevent timeout issues
+                    # Use safe execution with transaction recovery for each group
                     import time
                     group_start_time = time.time()
                     
-                    with self.env.cr.savepoint():
+                    def _sync_single_group():
                         # Get group participants from API
                         _logger.info(f"Fetching participants for group {group.name} ({group.group_id})")
                         
                         # Check timeout before API call
                         if self._check_timeout(group_start_time, self.timeout_per_group):
                             _logger.warning(f"Timeout exceeded for group {group.name}, skipping")
-                            continue
+                            return False
                         
                         group_info = api_service.get_group_info(group.group_id)
                         
                         # Check timeout after API call
                         if self._check_timeout(group_start_time, self.timeout_per_group):
                             _logger.warning(f"Timeout exceeded after API call for group {group.name}, skipping")
-                            continue
+                            return False
                         
                         if not group_info or 'participants' not in group_info:
                             _logger.warning(f"No participants data for group {group.name}")
-                            continue
+                            return False
                         
                         participants = group_info.get('participants', [])
                         _logger.info(f"Found {len(participants)} participants for group {group.name}")
@@ -827,7 +914,7 @@ class WhatsAppSyncWizard(models.TransientModel):
                                 'participant_ids': [(6, 0, [])],
                                 'synced_at': fields.Datetime.now(),
                             })
-                            continue
+                            return True
                         
                         # Extract participant contact IDs
                         api_participant_ids = set()
@@ -840,7 +927,7 @@ class WhatsAppSyncWizard(models.TransientModel):
                         
                         if not api_participant_ids:
                             _logger.warning(f"No valid participant IDs for group {group.name}")
-                            continue
+                            return False
                         
                         # Get existing contacts for these participant IDs
                         existing_contacts = self.env['whatsapp.contact'].search([
@@ -873,29 +960,35 @@ class WhatsAppSyncWizard(models.TransientModel):
                                 create_vals_list.append(vals)
                             
                             if create_vals_list:
-                                try:
-                                    # Create in smaller batches to avoid timeout
-                                    batch_size = 20
-                                    for i in range(0, len(create_vals_list), batch_size):
-                                        batch = create_vals_list[i:i + batch_size]
-                                        created_contacts = self.env['whatsapp.contact'].create(batch)
-                                        new_contacts_created += len(created_contacts)
-                                        
-                                        # Commit after each batch to prevent timeout
-                                        self._safe_commit()
+                                # Create in smaller batches to avoid timeout
+                                batch_size = 20
+                                for i in range(0, len(create_vals_list), batch_size):
+                                    batch = create_vals_list[i:i + batch_size]
                                     
-                                    _logger.info(f"Successfully created {new_contacts_created} participant contacts for group {group.name}")
-                                except Exception as e:
-                                    _logger.error(f"Bulk create participant contacts failed for group {group.name}: {e}")
-                                    # Fallback to individual creates
-                                    for vals in create_vals_list:
-                                        try:
-                                            self.env['whatsapp.contact'].create(vals)
-                                            new_contacts_created += 1
-                                            # Commit after each individual create
-                                            self._safe_commit()
-                                        except Exception as create_error:
-                                            _logger.error(f"Individual participant contact create failed: {create_error}")
+                                    def _create_batch():
+                                        created_contacts = self.env['whatsapp.contact'].create(batch)
+                                        self._safe_commit()
+                                        return len(created_contacts)
+                                    
+                                    try:
+                                        batch_created = self._safe_execute(_create_batch)
+                                        new_contacts_created += batch_created or 0
+                                    except Exception as e:
+                                        _logger.error(f"Batch create failed for group {group.name}: {e}")
+                                        # Fallback to individual creates
+                                        for vals in batch:
+                                            def _create_individual():
+                                                self.env['whatsapp.contact'].create(vals)
+                                                self._safe_commit()
+                                                return 1
+                                            
+                                            try:
+                                                individual_created = self._safe_execute(_create_individual)
+                                                new_contacts_created += individual_created or 0
+                                            except Exception as create_error:
+                                                _logger.error(f"Individual participant contact create failed: {create_error}")
+                                
+                                _logger.info(f"Successfully created {new_contacts_created} participant contacts for group {group.name}")
                         
                         # Get all relevant contact records (existing + newly created)
                         all_relevant_contacts = self.env['whatsapp.contact'].search([
@@ -907,20 +1000,33 @@ class WhatsAppSyncWizard(models.TransientModel):
                         
                         # Update group participants
                         if all_relevant_contacts:
-                            try:
+                            def _link_participants():
                                 group.write({
                                     'participant_ids': [(6, 0, all_relevant_contacts.ids)],
                                     'synced_at': fields.Datetime.now(),
                                 })
-                                synced_count += 1
-                                _logger.info(f"Successfully linked {len(all_relevant_contacts)} participants to group {group.name}")
+                                self._safe_commit()
+                                return True
+                            
+                            try:
+                                result = self._safe_execute(_link_participants)
+                                if result:
+                                    _logger.info(f"Successfully linked {len(all_relevant_contacts)} participants to group {group.name}")
+                                    return True
+                                else:
+                                    _logger.error(f"Failed to link participants to group {group.name}")
+                                    return False
                             except Exception as link_error:
                                 _logger.error(f"Failed to link participants to group {group.name}: {link_error}")
+                                return False
                         else:
                             _logger.warning(f"No participant contacts found to link for group {group.name}")
+                            return False
                     
-                    # Commit after each group to prevent timeout
-                    self._safe_commit()
+                    # Execute the group sync with transaction recovery
+                    result = self._safe_execute(_sync_single_group)
+                    if result:
+                        synced_count += 1
                     
                 except Exception as e:
                     _logger.error(f"Failed to sync members for group {group.name}: {e}")
