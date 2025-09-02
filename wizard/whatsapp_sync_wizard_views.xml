@@ -23,11 +23,29 @@
                             <strong>Configuration:</strong> The sync will use your assigned WhatsApp configuration automatically.
                             <br/>
                             <strong>Provider:</strong> Data will be synced from your assigned API provider.
+                            <br/>
+                            <strong>Optimization:</strong> Bulk operations use set comparisons to sync only new data, reducing API calls and database operations significantly.
+                        </div>
+                        
+                        <!-- Advanced Settings Info -->
+                        <div class="alert alert-warning" role="alert" attrs="{'invisible': [('enable_bulk_operations', '=', False)]}">
+                            <strong>Advanced Settings:</strong>
+                            <ul>
+                                <li><strong>Batch Size:</strong> Number of records to process at once (recommended: 50-200)</li>
+                                <li><strong>Max Memory:</strong> Triggers garbage collection when exceeded</li>
+                                <li><strong>Skip Existing Check:</strong> Faster but may create duplicates - use only for initial sync</li>
+                                <li><strong>Async Processing:</strong> For very large datasets (experimental)</li>
+                            </ul>
                         </div>
                         
                         <group attrs="{'invisible': [('is_syncing', '=', True)]}">
                             <group>
                                 <field name="sync_type"/>
+                                <field name="enable_bulk_operations"/>
+                                <field name="batch_size" attrs="{'invisible': [('enable_bulk_operations', '=', False)]}"/>
+                                <field name="enable_async_processing" attrs="{'invisible': [('enable_bulk_operations', '=', False)]}"/>
+                                <field name="max_memory_usage" attrs="{'invisible': [('enable_bulk_operations', '=', False)]}"/>
+                                <field name="skip_existing_check" attrs="{'invisible': [('enable_bulk_operations', '=', False)]}"/>
                             </group>
                             <group attrs="{'invisible': [('sync_type', '!=', 'custom')]}">
                                 <field name="sync_contacts"/>
