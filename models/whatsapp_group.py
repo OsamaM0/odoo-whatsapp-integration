@@ -45,6 +45,8 @@ class WhatsAppGroup(models.Model):
     # Invite link fields
     invite_code = fields.Char('Invite Code', help='WhatsApp group invite code')
     invite_fetched_at = fields.Datetime('Invite Fetched At', help='When the invite code was last fetched')
+    invite_link = fields.Char('Invite Link', compute='_compute_invite_link', store=False, 
+                             help='Full WhatsApp invite link')
     
     _sql_constraints = [
         ('group_id_unique', 'unique(group_id)', 'Group ID must be unique when specified!'),
@@ -69,6 +71,15 @@ class WhatsAppGroup(models.Model):
                 args = [('id', '=', False)]
         
         return super().search(args, offset=offset, limit=limit, order=order, count=count)
+    
+    @api.depends('invite_code')
+    def _compute_invite_link(self):
+        """Compute the full invite link"""
+        for group in self:
+            if group.invite_code:
+                group.invite_link = f"https://chat.whatsapp.com/{group.invite_code}"
+            else:
+                group.invite_link = False
     
     @api.constrains('group_id')
     def _check_group_id_after_create(self):
@@ -205,6 +216,34 @@ class WhatsAppGroup(models.Model):
                     'type': 'danger',
                 }
             }
+
+    def fetch_invite_link(self):
+        """Fetch invite link for WHAPI groups (used by controllers and sync)"""
+        if self.provider != 'whapi':
+            _logger.warning(f"Invite link fetching is only supported for WHAPI provider, group {self.name} uses {self.provider}")
+            return False
+        
+        if not self.group_id:
+            _logger.warning(f"Group {self.name} has no group_id, cannot fetch invite link")
+            return False
+        
+        try:
+            api_service = self.env['whapi.service']
+            invite_code = api_service.get_group_invite_code(self.group_id)
+            
+            if invite_code:
+                self.write({
+                    'invite_code': invite_code,
+                    'invite_fetched_at': fields.Datetime.now(),
+                })
+                _logger.info(f"✅ Successfully fetched invite code for group {self.name}: {invite_code}")
+                return True
+            else:
+                _logger.warning(f"❌ Could not fetch invite code for group {self.name}")
+                return False
+        except Exception as e:
+            _logger.error(f"❌ Error fetching invite link for group {self.name}: {e}")
+            return False
 
     def copy_invite_code(self):
         """Open the WhatsApp invite link in a new browser tab"""
@@ -546,6 +585,14 @@ class WhatsAppGroup(models.Model):
                 })
             
             existing.write(update_vals)
+            
+            # Auto-fetch invite link for existing WHAPI groups if not present
+            if provider == 'whapi' and not existing.invite_code:
+                try:
+                    existing.fetch_invite_link()
+                except Exception as e:
+                    _logger.warning(f"Could not auto-fetch invite link for existing group {existing.name}: {e}")
+            
             return existing
 
         # Create new group
@@ -563,6 +610,21 @@ class WhatsAppGroup(models.Model):
             vals.update({
                 'wid': api_data.get('wid', group_id),
             })
+        
+        # Auto-fetch invite link for new WHAPI groups
+        if provider == 'whapi':
+            try:
+                api_service = self.env['whapi.service']
+                invite_code = api_service.get_group_invite_code(group_id)
+                
+                if invite_code:
+                    vals.update({
+                        'invite_code': invite_code,
+                        'invite_fetched_at': fields.Datetime.now(),
+                    })
+                    _logger.info(f"✅ Auto-fetched invite code for new group {name}: {invite_code}")
+            except Exception as e:
+                _logger.warning(f"Could not auto-fetch invite link for new group {name}: {e}")
         
         try:
             return self.create(vals)
@@ -708,6 +770,13 @@ class WhatsAppGroup(models.Model):
                         })
                     
                     existing.write(update_vals)
+                    
+                    # Auto-fetch invite link for existing WHAPI groups if not present
+                    if provider == 'whapi' and not existing.invite_code:
+                        try:
+                            existing.fetch_invite_link()
+                        except Exception as e:
+                            _logger.warning(f"Could not auto-fetch invite link for existing group {existing.name}: {e}")
             
             return {
                 'success': True,
@@ -819,4 +888,70 @@ class WhatsAppGroup(models.Model):
                 'count': 0,  # Add count field for compatibility
                 'error_count': 1,
                 'message': f'Sync failed: {str(e)}'
+            }
+
+    @api.model
+    def fetch_all_missing_invite_links(self):
+        """Fetch invite links for all WHAPI groups that don't have them"""
+        try:
+            # Get configuration for the current user
+            config = self.env['whatsapp.configuration'].get_user_configuration()
+            if not config:
+                return {
+                    'success': False,
+                    'message': 'No accessible WhatsApp configuration found',
+                    'fetched_count': 0
+                }
+            
+            if config.provider != 'whapi':
+                return {
+                    'success': False,
+                    'message': 'Invite link fetching is only supported for WHAPI provider',
+                    'fetched_count': 0
+                }
+            
+            # Find WHAPI groups without invite codes
+            groups_needing_invites = self.search([
+                ('provider', '=', 'whapi'),
+                ('invite_code', '=', False),
+                ('group_id', '!=', False),
+                ('is_active', '=', True),
+                ('configuration_id', '=', config.id)
+            ])
+            
+            if not groups_needing_invites:
+                return {
+                    'success': True,
+                    'message': 'All active groups already have invite links',
+                    'fetched_count': 0
+                }
+            
+            _logger.info(f"Fetching invite links for {len(groups_needing_invites)} groups")
+            
+            fetched_count = 0
+            error_count = 0
+            
+            for group in groups_needing_invites:
+                try:
+                    if group.fetch_invite_link():
+                        fetched_count += 1
+                    else:
+                        error_count += 1
+                except Exception as e:
+                    _logger.error(f"Failed to fetch invite link for group {group.name}: {e}")
+                    error_count += 1
+            
+            return {
+                'success': True,
+                'message': f'Fetched invite links for {fetched_count} groups ({error_count} errors)',
+                'fetched_count': fetched_count,
+                'error_count': error_count
+            }
+            
+        except Exception as e:
+            _logger.error(f"Bulk invite link fetch failed: {e}")
+            return {
+                'success': False,
+                'message': f'Bulk fetch failed: {str(e)}',
+                'fetched_count': 0
             }

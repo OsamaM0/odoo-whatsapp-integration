@@ -74,6 +74,7 @@
                                 <field name="configuration_id" readonly="1" attrs="{'invisible': [('group_id', '=', False)]}" groups="whatsapp_integration.group_whatsapp_admin"/>
                                 <field name="provider" readonly="1" attrs="{'invisible': [('group_id', '=', False)]}"/>
                                 <field name="invite_code" readonly="1" attrs="{'invisible': ['|', ('provider', '!=', 'whapi'), ('invite_code', '=', False)]}"/>
+                                <field name="invite_link" readonly="1" widget="url" attrs="{'invisible': ['|', ('provider', '!=', 'whapi'), ('invite_link', '=', False)]}"/>
                             </group>
                             <group name="timestamps" attrs="{'invisible': [('group_id', '=', False)]}">
                                 <field name="created_at" readonly="1"/>
@@ -178,6 +179,36 @@
             <field name="view_mode">tree,form</field>
             <field name="search_view_id" ref="view_whatsapp_group_search"/>
             <field name="context">{'search_default_active': 1, 'create': True}</field>
+        </record>
+
+        <!-- Action to fetch all missing invite links -->
+        <record id="action_fetch_all_invite_links" model="ir.actions.server">
+            <field name="name">Fetch All Missing Invite Links</field>
+            <field name="model_id" ref="model_whatsapp_group"/>
+            <field name="state">code</field>
+            <field name="code">
+result = model.fetch_all_missing_invite_links()
+if result.get('success'):
+    action = {
+        'type': 'ir.actions.client',
+        'tag': 'display_notification',
+        'params': {
+            'title': 'Success',
+            'message': result.get('message', ''),
+            'type': 'success',
+        }
+    }
+else:
+    action = {
+        'type': 'ir.actions.client',
+        'tag': 'display_notification',
+        'params': {
+            'title': 'Error',
+            'message': result.get('message', 'Unknown error'),
+            'type': 'danger',
+        }
+    }
+            </field>
         </record>
     </data>
 </odoo>

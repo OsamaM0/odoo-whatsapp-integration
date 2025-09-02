@@ -36,6 +36,12 @@
                   action="action_whatsapp_group"
                   sequence="20"/>
         
+        <menuitem id="menu_whatsapp_fetch_invite_links" 
+                  name="Fetch Invite Links" 
+                  parent="menu_whatsapp_main" 
+                  action="action_fetch_all_invite_links"
+                  sequence="21"/>
+        
         <menuitem id="menu_whatsapp_messages" 
                   name="Messages" 
                   parent="menu_whatsapp_main" 

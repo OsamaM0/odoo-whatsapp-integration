@@ -21,6 +21,8 @@ class WhatsAppSyncWizard(models.TransientModel):
     sync_groups = fields.Boolean('Sync Groups', default=True)
     sync_messages = fields.Boolean('Sync Messages', default=True)
     sync_group_members = fields.Boolean('Sync Group Members', default=True)
+    auto_fetch_invite_links = fields.Boolean('Auto-fetch Group Invite Links', default=True,
+                                            help='Automatically fetch invite links for WHAPI groups during sync')
     
     # Progress tracking fields
     is_syncing = fields.Boolean('Is Syncing', default=False)
@@ -703,7 +705,7 @@ class WhatsAppSyncWizard(models.TransientModel):
                             except Exception as create_error:
                                 _logger.error(f"Individual group create failed: {create_error}")
             
-            # Bulk update existing groups
+            # Bulk update existing groups and fetch missing invite links
             if groups_to_update:
                 groups_to_update_records = existing_groups.filtered(
                     lambda g: g.group_id in groups_to_update
@@ -718,6 +720,27 @@ class WhatsAppSyncWizard(models.TransientModel):
                 try:
                     groups_to_update_records.write(update_vals)
                     _logger.info(f"Bulk updated {len(groups_to_update_records)} groups")
+                    
+                    # Auto-fetch missing invite links for WHAPI groups (if enabled)
+                    if config.provider == 'whapi' and self.auto_fetch_invite_links:
+                        groups_needing_invites = groups_to_update_records.filtered(
+                            lambda g: not g.invite_code
+                        )
+                        
+                        if groups_needing_invites:
+                            _logger.info(f"Auto-fetching invite links for {len(groups_needing_invites)} groups without invite codes")
+                            invite_fetched_count = 0
+                            
+                            for group in groups_needing_invites:
+                                try:
+                                    if group.fetch_invite_link():
+                                        invite_fetched_count += 1
+                                except Exception as e:
+                                    _logger.warning(f"⚠️ Failed to auto-fetch invite for group {group.name}: {e}")
+                                    # Continue with other groups
+                            
+                            _logger.info(f"✅ Auto-fetched invite links for {invite_fetched_count}/{len(groups_needing_invites)} groups")
+                    
                 except Exception as e:
                     _logger.error(f"Bulk update groups failed: {e}")
             
@@ -1089,7 +1112,7 @@ class WhatsAppSyncWizard(models.TransientModel):
         if not group_id or not name:
             return None
         
-        return {
+        vals = {
             'group_id': group_id,
             'name': name,
             'description': api_data.get('description', ''),
@@ -1098,6 +1121,26 @@ class WhatsAppSyncWizard(models.TransientModel):
             'metadata': str(api_data),
             'configuration_id': config.id,
         }
+        
+        # Auto-fetch invite link for WHAPI groups during sync (if enabled)
+        if config.provider == 'whapi' and self.auto_fetch_invite_links:
+            try:
+                api_service = self.env['whapi.service']
+                invite_code = api_service.get_group_invite_code(group_id)
+                
+                if invite_code:
+                    vals.update({
+                        'invite_code': invite_code,
+                        'invite_fetched_at': fields.Datetime.now(),
+                    })
+                    _logger.info(f"✅ Auto-fetched invite code for new group {name}: {invite_code}")
+                else:
+                    _logger.info(f"ℹ️ No invite code available for group {name}")
+            except Exception as e:
+                _logger.warning(f"⚠️ Could not fetch invite code for group {name} during sync: {e}")
+                # Don't fail group creation if invite fetch fails
+        
+        return vals
     
     def _prepare_message_vals(self, api_data, config):
         """Prepare message values for bulk creation"""
