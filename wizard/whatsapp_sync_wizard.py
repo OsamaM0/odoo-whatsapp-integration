@@ -112,18 +112,19 @@ class WhatsAppSyncWizard(models.TransientModel):
                 _logger.info(f"Syncing contacts with bulk optimization... ({current_step}/{total_steps})")
                 
                 try:
-                    # Use a separate transaction for each sync operation
-                    with self.env.cr.savepoint():
-                        if self.enable_bulk_operations:
-                            result = self._sync_contacts_bulk()
-                        else:
+                    # Use direct method call without savepoint for bulk operations
+                    if self.enable_bulk_operations:
+                        result = self._sync_contacts_bulk()
+                    else:
+                        # Use savepoint only for the original method
+                        with self.env.cr.savepoint():
                             result = self.env['whatsapp.contact'].sync_all_contacts_from_api()
-                        
-                        if result.get('success'):
-                            contacts_synced = result.get('count', 0)
-                        else:
-                            errors.append(f"Contacts sync: {result.get('message', 'Unknown error')}")
-                            errors_count += 1
+                    
+                    if result.get('success'):
+                        contacts_synced = result.get('count', 0)
+                    else:
+                        errors.append(f"Contacts sync: {result.get('message', 'Unknown error')}")
+                        errors_count += 1
                 except Exception as e:
                     # Log error and continue with next sync
                     _logger.error(f"Contacts sync error: {str(e)}")
@@ -137,17 +138,17 @@ class WhatsAppSyncWizard(models.TransientModel):
                 _logger.info(f"Syncing groups with bulk optimization... ({current_step}/{total_steps})")
                 
                 try:
-                    with self.env.cr.savepoint():
-                        if self.enable_bulk_operations:
-                            result = self._sync_groups_bulk()
-                        else:
+                    if self.enable_bulk_operations:
+                        result = self._sync_groups_bulk()
+                    else:
+                        with self.env.cr.savepoint():
                             result = self.env['whatsapp.group'].sync_all_groups_from_api()
-                        
-                        if result.get('success'):
-                            groups_synced = result.get('count', 0)
-                        else:
-                            errors.append(f"Groups sync: {result.get('message', 'Unknown error')}")
-                            errors_count += 1
+                    
+                    if result.get('success'):
+                        groups_synced = result.get('count', 0)
+                    else:
+                        errors.append(f"Groups sync: {result.get('message', 'Unknown error')}")
+                        errors_count += 1
                 except Exception as e:
                     _logger.error(f"Groups sync error: {str(e)}")
                     errors.append(f"Groups sync error: {str(e)}")
@@ -160,17 +161,17 @@ class WhatsAppSyncWizard(models.TransientModel):
                 _logger.info(f"Syncing messages with bulk optimization... ({current_step}/{total_steps})")
                 
                 try:
-                    with self.env.cr.savepoint():
-                        if self.enable_bulk_operations:
-                            result = self._sync_messages_bulk()
-                        else:
+                    if self.enable_bulk_operations:
+                        result = self._sync_messages_bulk()
+                    else:
+                        with self.env.cr.savepoint():
                             result = self.env['whatsapp.message'].sync_all_messages_from_api()
-                        
-                        if result.get('success'):
-                            messages_synced = result.get('count', 0)
-                        else:
-                            errors.append(f"Messages sync: {result.get('message', 'Unknown error')}")
-                            errors_count += 1
+                    
+                    if result.get('success'):
+                        messages_synced = result.get('count', 0)
+                    else:
+                        errors.append(f"Messages sync: {result.get('message', 'Unknown error')}")
+                        errors_count += 1
                 except Exception as e:
                     _logger.error(f"Messages sync error: {str(e)}")
                     errors.append(f"Messages sync error: {str(e)}")
@@ -183,24 +184,24 @@ class WhatsAppSyncWizard(models.TransientModel):
                 _logger.info(f"Syncing group members with bulk optimization... ({current_step}/{total_steps})")
                 
                 try:
-                    with self.env.cr.savepoint():
-                        if self.enable_bulk_operations:
-                            result = self._sync_group_members_bulk()
-                        else:
+                    if self.enable_bulk_operations:
+                        result = self._sync_group_members_bulk()
+                    else:
+                        with self.env.cr.savepoint():
                             result = self.env['whatsapp.group'].sync_all_group_members_from_api()
-                        
-                        if result.get('success'):
-                            group_members_synced = result.get('count', 0)
-                        else:
-                            errors.append(f"Group members sync: {result.get('message', 'Unknown error')}")
-                            errors_count += 1
+                    
+                    if result.get('success'):
+                        group_members_synced = result.get('count', 0)
+                    else:
+                        errors.append(f"Group members sync: {result.get('message', 'Unknown error')}")
+                        errors_count += 1
                 except Exception as e:
                     _logger.error(f"Group members sync error: {str(e)}")
                     errors.append(f"Group members sync error: {str(e)}")
                     errors_count += 1
             
             # Complete sync - update wizard record once at the end
-            with self.env.cr.savepoint():
+            try:
                 self.write({
                     'is_syncing': False,
                     'progress': 100.0,
@@ -212,6 +213,8 @@ class WhatsAppSyncWizard(models.TransientModel):
                     'errors_count': errors_count,
                     'error_messages': '\n'.join(errors) if errors else False,
                 })
+            except Exception as write_error:
+                _logger.error(f"Failed to update final wizard state: {write_error}")
             
             if not errors:
                 return {
@@ -237,12 +240,11 @@ class WhatsAppSyncWizard(models.TransientModel):
         except Exception as e:
             _logger.error(f"Sync wizard error: {str(e)}")
             try:
-                with self.env.cr.savepoint():
-                    self.write({
-                        'is_syncing': False,
-                        'error_messages': str(e),
-                        'errors_count': 1,
-                    })
+                self.write({
+                    'is_syncing': False,
+                    'error_messages': str(e),
+                    'errors_count': 1,
+                })
             except Exception as write_error:
                 _logger.error(f"Failed to update wizard with error: {str(write_error)}")
             
@@ -256,6 +258,23 @@ class WhatsAppSyncWizard(models.TransientModel):
                 }
             }
     
+    
+    def _is_in_transaction(self):
+        """Check if we're currently in a transaction or savepoint"""
+        try:
+            return hasattr(self.env.cr, '_savepoint_seq') and self.env.cr._savepoint_seq > 0
+        except:
+            return False
+    
+    def _safe_commit(self):
+        """Safely commit only if not in a savepoint"""
+        try:
+            if not self._is_in_transaction():
+                self.env.cr.commit()
+            return True
+        except Exception as e:
+            _logger.warning(f"Safe commit failed: {e}")
+            return False
     
     def _check_memory_usage(self):
         """Check memory usage and force garbage collection if needed"""
@@ -285,12 +304,16 @@ class WhatsAppSyncWizard(models.TransientModel):
     def _update_progress(self, step, total_steps, operation):
         """Update progress tracking"""
         progress = (step / total_steps) * 100 if total_steps > 0 else 0
-        self.write({
-            'progress': progress,
-            'current_operation': operation,
-        })
-        # Commit to ensure progress is visible
-        self.env.cr.commit()
+        try:
+            self.write({
+                'progress': progress,
+                'current_operation': operation,
+            })
+            # Use safe commit method
+            self._safe_commit()
+        except Exception as e:
+            _logger.warning(f"Failed to update progress: {e}")
+            # Continue without failing the sync
     
     def _sync_contacts_bulk(self):
         """Bulk sync contacts with set operations for efficiency"""
@@ -388,11 +411,20 @@ class WhatsAppSyncWizard(models.TransientModel):
                 contacts_to_update = set()
             else:
                 # Use direct SQL for better performance on large datasets
-                self.env.cr.execute("""
-                    SELECT contact_id FROM whatsapp_contact 
-                    WHERE configuration_id = %s AND contact_id = ANY(%s)
-                """, (config.id, list(api_contact_ids)))
-                existing_contact_ids = set(row[0] for row in self.env.cr.fetchall())
+                try:
+                    self.env.cr.execute("""
+                        SELECT contact_id FROM whatsapp_contact 
+                        WHERE configuration_id = %s AND contact_id = ANY(%s)
+                    """, (config.id, list(api_contact_ids)))
+                    existing_contact_ids = set(row[0] for row in self.env.cr.fetchall())
+                except Exception as sql_error:
+                    _logger.error(f"SQL query failed, falling back to ORM: {sql_error}")
+                    # Fallback to ORM method
+                    existing_contacts = self.env['whatsapp.contact'].search([
+                        ('configuration_id', '=', config.id),
+                        ('contact_id', 'in', list(api_contact_ids))
+                    ])
+                    existing_contact_ids = set(existing_contacts.mapped('contact_id'))
                 
                 # Find contacts to create (in API but not in DB)
                 contacts_to_create = api_contact_ids - existing_contact_ids
@@ -421,61 +453,68 @@ class WhatsAppSyncWizard(models.TransientModel):
                         create_batch_size = min(self.batch_size, 50)
                         for i in range(0, len(create_vals_list), create_batch_size):
                             batch = create_vals_list[i:i + create_batch_size]
-                            created_contacts = self.env['whatsapp.contact'].create(batch)
-                            synced_count += len(created_contacts)
+                            
+                            # Use individual savepoint for each batch
+                            try:
+                                with self.env.cr.savepoint():
+                                    created_contacts = self.env['whatsapp.contact'].create(batch)
+                                    synced_count += len(created_contacts)
+                            except Exception as batch_error:
+                                _logger.error(f"Batch create failed, trying individual creates: {batch_error}")
+                                # Fallback to individual creates for this batch
+                                for vals in batch:
+                                    try:
+                                        with self.env.cr.savepoint():
+                                            self.env['whatsapp.contact'].create(vals)
+                                            synced_count += 1
+                                    except Exception as create_error:
+                                        _logger.error(f"Individual contact create failed: {create_error}")
                             
                             # Update progress
                             progress = 80 + (i / len(create_vals_list)) * 15
                             self._update_progress(progress, 100, f'Created {synced_count} contacts...')
                             
-                            # Check memory and commit periodically
+                            # Check memory periodically
                             if i % (create_batch_size * 5) == 0:
                                 self._check_memory_usage()
-                                self.env.cr.commit()
                         
                         _logger.info(f"Bulk created {synced_count} contacts")
                     except Exception as e:
                         _logger.error(f"Bulk create contacts failed: {e}")
-                        # Fallback to individual creates
-                        for vals in create_vals_list:
-                            try:
-                                self.env['whatsapp.contact'].create(vals)
-                                synced_count += 1
-                            except Exception as create_error:
-                                _logger.error(f"Individual contact create failed: {create_error}")
+                        return {'success': False, 'count': 0, 'message': str(e)}
             
             # Bulk update existing contacts
             if contacts_to_update and not self.skip_existing_check:
                 self._update_progress(95, 100, f'Updating {len(contacts_to_update)} existing contacts...')
                 
-                # Use direct SQL for bulk update for better performance
-                update_vals = {
-                    'synced_at': fields.Datetime.now(),
-                    'provider': config.provider,
-                }
-                
                 try:
-                    # Update in batches
+                    # Use direct SQL for bulk update for better performance
                     contact_ids_list = list(contacts_to_update)
                     update_batch_size = min(self.batch_size, 100)
                     
                     for i in range(0, len(contact_ids_list), update_batch_size):
                         batch_ids = contact_ids_list[i:i + update_batch_size]
-                        self.env.cr.execute("""
-                            UPDATE whatsapp_contact 
-                            SET synced_at = %s, provider = %s, updated_at = %s
-                            WHERE configuration_id = %s AND contact_id = ANY(%s)
-                        """, (
-                            update_vals['synced_at'],
-                            update_vals['provider'], 
-                            fields.Datetime.now(),
-                            config.id,
-                            batch_ids
-                        ))
+                        try:
+                            self.env.cr.execute("""
+                                UPDATE whatsapp_contact 
+                                SET synced_at = %s, provider = %s, updated_at = %s
+                                WHERE configuration_id = %s AND contact_id = ANY(%s)
+                            """, (
+                                fields.Datetime.now(),
+                                config.provider, 
+                                fields.Datetime.now(),
+                                config.id,
+                                batch_ids
+                            ))
+                        except Exception as update_error:
+                            _logger.error(f"Batch update failed: {update_error}")
+                            # Continue with next batch
+                            continue
                     
                     _logger.info(f"Bulk updated {len(contacts_to_update)} contacts")
                 except Exception as e:
                     _logger.error(f"Bulk update contacts failed: {e}")
+                    # Don't fail the entire sync for update errors
             
             self._update_progress(100, 100, 'Contact sync completed')
             
