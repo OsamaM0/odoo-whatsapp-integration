@@ -41,6 +41,8 @@ class WhatsAppSyncWizard(models.TransientModel):
     # Additional settings
     skip_existing_check = fields.Boolean('Skip Existing Check', default=False,
                                         help='Skip checking for existing records (faster but may create duplicates)')
+    timeout_per_group = fields.Integer('Timeout Per Group (seconds)', default=30,
+                                      help='Maximum time to spend syncing each group members')
     
     # Results
     contacts_synced = fields.Integer('Contacts Synced', default=0)
@@ -275,6 +277,11 @@ class WhatsAppSyncWizard(models.TransientModel):
         except Exception as e:
             _logger.warning(f"Safe commit failed: {e}")
             return False
+    
+    def _check_timeout(self, start_time, timeout_seconds):
+        """Check if operation has exceeded timeout"""
+        import time
+        return (time.time() - start_time) > timeout_seconds
     
     def _check_memory_usage(self):
         """Check memory usage and force garbage collection if needed"""
@@ -763,95 +770,173 @@ class WhatsAppSyncWizard(models.TransientModel):
                 ('configuration_id', '=', config.id)
             ])
             
+            if not groups:
+                return {'success': True, 'count': 0, 'message': 'No groups found to sync'}
+            
             synced_count = 0
+            total_groups = len(groups)
+            processed_groups = 0
+            
+            _logger.info(f"Starting group member sync for {total_groups} groups")
             
             for group in groups:
+                processed_groups += 1
+                
+                # Update progress
+                self._update_progress(
+                    processed_groups, 
+                    total_groups, 
+                    f'Syncing members for group {group.name} ({processed_groups}/{total_groups})'
+                )
+                
                 if not group.group_id:
+                    _logger.warning(f"Group {group.name} has no group_id, skipping")
                     continue
                 
                 try:
-                    # Get group participants from API
-                    group_info = api_service.get_group_info(group.group_id)
-                    if not group_info or 'participants' not in group_info:
-                        continue
+                    # Use individual savepoint for each group to prevent timeout issues
+                    import time
+                    group_start_time = time.time()
                     
-                    participants = group_info.get('participants', [])
-                    
-                    # Extract participant contact IDs
-                    api_participant_ids = set()
-                    api_participants_dict = {}
-                    for participant in participants:
-                        contact_id = participant.get('id', '')
-                        if contact_id:
-                            api_participant_ids.add(contact_id)
-                            api_participants_dict[contact_id] = participant
-                    
-                    # Get existing contacts for these participant IDs
-                    existing_contacts = self.env['whatsapp.contact'].search([
-                        ('contact_id', 'in', list(api_participant_ids)),
-                        ('configuration_id', '=', config.id)
-                    ])
-                    existing_contact_ids = set(existing_contacts.mapped('contact_id'))
-                    
-                    # Find contacts to create
-                    contacts_to_create = api_participant_ids - existing_contact_ids
-                    
-                    # Bulk create missing contacts
-                    new_contact_ids = []
-                    if contacts_to_create:
-                        create_vals_list = []
-                        for contact_id in contacts_to_create:
-                            participant_data = api_participants_dict[contact_id]
-                            vals = {
-                                'contact_id': contact_id,
-                                'name': participant_data.get('name', '') or contact_id,
-                                'pushname': participant_data.get('pushname', ''),
-                                'phone': participant_data.get('phone', ''),
-                                'provider': config.provider,
-                                'synced_at': fields.Datetime.now(),
-                                'is_chat_contact': True,
-                                'is_phone_contact': False,
-                                'configuration_id': config.id,
-                            }
-                            create_vals_list.append(vals)
+                    with self.env.cr.savepoint():
+                        # Get group participants from API
+                        _logger.info(f"Fetching participants for group {group.name} ({group.group_id})")
                         
-                        if create_vals_list:
+                        # Check timeout before API call
+                        if self._check_timeout(group_start_time, self.timeout_per_group):
+                            _logger.warning(f"Timeout exceeded for group {group.name}, skipping")
+                            continue
+                        
+                        group_info = api_service.get_group_info(group.group_id)
+                        
+                        # Check timeout after API call
+                        if self._check_timeout(group_start_time, self.timeout_per_group):
+                            _logger.warning(f"Timeout exceeded after API call for group {group.name}, skipping")
+                            continue
+                        
+                        if not group_info or 'participants' not in group_info:
+                            _logger.warning(f"No participants data for group {group.name}")
+                            continue
+                        
+                        participants = group_info.get('participants', [])
+                        _logger.info(f"Found {len(participants)} participants for group {group.name}")
+                        
+                        if not participants:
+                            # Clear participants if group has no members
+                            group.write({
+                                'participant_ids': [(6, 0, [])],
+                                'synced_at': fields.Datetime.now(),
+                            })
+                            continue
+                        
+                        # Extract participant contact IDs
+                        api_participant_ids = set()
+                        api_participants_dict = {}
+                        for participant in participants:
+                            contact_id = participant.get('id', '')
+                            if contact_id:
+                                api_participant_ids.add(contact_id)
+                                api_participants_dict[contact_id] = participant
+                        
+                        if not api_participant_ids:
+                            _logger.warning(f"No valid participant IDs for group {group.name}")
+                            continue
+                        
+                        # Get existing contacts for these participant IDs
+                        existing_contacts = self.env['whatsapp.contact'].search([
+                            ('contact_id', 'in', list(api_participant_ids)),
+                            ('configuration_id', '=', config.id)
+                        ])
+                        existing_contact_ids = set(existing_contacts.mapped('contact_id'))
+                        
+                        # Find contacts to create
+                        contacts_to_create = api_participant_ids - existing_contact_ids
+                        
+                        # Bulk create missing contacts
+                        new_contacts_created = 0
+                        if contacts_to_create:
+                            _logger.info(f"Creating {len(contacts_to_create)} missing participant contacts for group {group.name}")
+                            create_vals_list = []
+                            for contact_id in contacts_to_create:
+                                participant_data = api_participants_dict[contact_id]
+                                vals = {
+                                    'contact_id': contact_id,
+                                    'name': participant_data.get('name', '') or contact_id,
+                                    'pushname': participant_data.get('pushname', ''),
+                                    'phone': participant_data.get('phone', ''),
+                                    'provider': config.provider,
+                                    'synced_at': fields.Datetime.now(),
+                                    'is_chat_contact': True,
+                                    'is_phone_contact': False,
+                                    'configuration_id': config.id,
+                                }
+                                create_vals_list.append(vals)
+                            
+                            if create_vals_list:
+                                try:
+                                    # Create in smaller batches to avoid timeout
+                                    batch_size = 20
+                                    for i in range(0, len(create_vals_list), batch_size):
+                                        batch = create_vals_list[i:i + batch_size]
+                                        created_contacts = self.env['whatsapp.contact'].create(batch)
+                                        new_contacts_created += len(created_contacts)
+                                        
+                                        # Commit after each batch to prevent timeout
+                                        self._safe_commit()
+                                    
+                                    _logger.info(f"Successfully created {new_contacts_created} participant contacts for group {group.name}")
+                                except Exception as e:
+                                    _logger.error(f"Bulk create participant contacts failed for group {group.name}: {e}")
+                                    # Fallback to individual creates
+                                    for vals in create_vals_list:
+                                        try:
+                                            self.env['whatsapp.contact'].create(vals)
+                                            new_contacts_created += 1
+                                            # Commit after each individual create
+                                            self._safe_commit()
+                                        except Exception as create_error:
+                                            _logger.error(f"Individual participant contact create failed: {create_error}")
+                        
+                        # Get all relevant contact records (existing + newly created)
+                        all_relevant_contacts = self.env['whatsapp.contact'].search([
+                            ('contact_id', 'in', list(api_participant_ids)),
+                            ('configuration_id', '=', config.id)
+                        ])
+                        
+                        _logger.info(f"Found {len(all_relevant_contacts)} total participant contacts for group {group.name}")
+                        
+                        # Update group participants
+                        if all_relevant_contacts:
                             try:
-                                created_contacts = self.env['whatsapp.contact'].create(create_vals_list)
-                                new_contact_ids = created_contacts.ids
-                                _logger.info(f"Bulk created {len(created_contacts)} participant contacts for group {group.name}")
-                            except Exception as e:
-                                _logger.error(f"Bulk create participant contacts failed: {e}")
-                                # Fallback to individual creates
-                                for vals in create_vals_list:
-                                    try:
-                                        contact = self.env['whatsapp.contact'].create(vals)
-                                        new_contact_ids.append(contact.id)
-                                    except Exception as create_error:
-                                        _logger.error(f"Individual participant contact create failed: {create_error}")
+                                group.write({
+                                    'participant_ids': [(6, 0, all_relevant_contacts.ids)],
+                                    'synced_at': fields.Datetime.now(),
+                                })
+                                synced_count += 1
+                                _logger.info(f"Successfully linked {len(all_relevant_contacts)} participants to group {group.name}")
+                            except Exception as link_error:
+                                _logger.error(f"Failed to link participants to group {group.name}: {link_error}")
+                        else:
+                            _logger.warning(f"No participant contacts found to link for group {group.name}")
                     
-                    # Get all relevant contact IDs (existing + newly created)
-                    all_relevant_contacts = self.env['whatsapp.contact'].search([
-                        ('contact_id', 'in', list(api_participant_ids)),
-                        ('configuration_id', '=', config.id)
-                    ])
-                    
-                    # Bulk update group participants
-                    if all_relevant_contacts:
-                        group.write({
-                            'participant_ids': [(6, 0, all_relevant_contacts.ids)],
-                            'synced_at': fields.Datetime.now(),
-                        })
-                        synced_count += 1
+                    # Commit after each group to prevent timeout
+                    self._safe_commit()
                     
                 except Exception as e:
                     _logger.error(f"Failed to sync members for group {group.name}: {e}")
+                    # Continue with next group instead of failing completely
                     continue
+                
+                # Check memory usage periodically
+                if processed_groups % 5 == 0:
+                    self._check_memory_usage()
+            
+            _logger.info(f"Group member sync completed: {synced_count}/{total_groups} groups synced successfully")
             
             return {
                 'success': True,
                 'count': synced_count,
-                'message': f'Bulk synced members for {synced_count} groups'
+                'message': f'Bulk synced members for {synced_count} out of {total_groups} groups'
             }
             
         except Exception as e:
@@ -958,6 +1043,53 @@ class WhatsAppSyncWizard(models.TransientModel):
                 vals['contact_id'] = contact.id
         
         return vals
+
+    def action_check_group_participants(self):
+        """Diagnostic method to check group participant assignments"""
+        config = self.env['whatsapp.configuration'].get_user_configuration()
+        if not config:
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'title': 'No Configuration',
+                    'message': 'No accessible WhatsApp configuration found',
+                    'type': 'warning',
+                }
+            }
+        
+        groups = self.env['whatsapp.group'].search([
+            ('is_active', '=', True),
+            ('configuration_id', '=', config.id)
+        ])
+        
+        message_lines = []
+        groups_with_participants = 0
+        groups_without_participants = 0
+        
+        for group in groups[:10]:  # Check first 10 groups
+            participant_count = len(group.participant_ids)
+            if participant_count > 0:
+                groups_with_participants += 1
+                message_lines.append(f"✓ {group.name}: {participant_count} participants")
+            else:
+                groups_without_participants += 1
+                message_lines.append(f"✗ {group.name}: No participants")
+        
+        message = f"Group Participant Check:\n\n"
+        message += f"Groups with participants: {groups_with_participants}\n"
+        message += f"Groups without participants: {groups_without_participants}\n\n"
+        message += "Sample (first 10 groups):\n" + "\n".join(message_lines)
+        
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': 'Group Participants Check',
+                'message': message,
+                'type': 'info',
+            }
+        }
 
     def action_close(self):
         """Close the wizard"""

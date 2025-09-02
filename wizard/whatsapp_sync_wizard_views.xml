@@ -10,6 +10,8 @@
                     <header>
                         <button name="action_start_sync" string="Start Sync" type="object" 
                                 class="btn-primary" attrs="{'invisible': [('is_syncing', '=', True)]}"/>
+                        <button name="action_check_group_participants" string="Check Group Participants" type="object" 
+                                class="btn-secondary" attrs="{'invisible': [('is_syncing', '=', True)]}"/>
                         <button name="action_close" string="Close" type="object" 
                                 class="btn-secondary" attrs="{'invisible': [('is_syncing', '=', True)]}"/>
                     </header>
@@ -34,6 +36,7 @@
                                 <li><strong>Batch Size:</strong> Number of records to process at once (recommended: 50-200)</li>
                                 <li><strong>Max Memory:</strong> Triggers garbage collection when exceeded</li>
                                 <li><strong>Skip Existing Check:</strong> Faster but may create duplicates - use only for initial sync</li>
+                                <li><strong>Timeout Per Group:</strong> Maximum time to sync each group's members (prevents worker timeout)</li>
                                 <li><strong>Async Processing:</strong> For very large datasets (experimental)</li>
                             </ul>
                         </div>
@@ -46,6 +49,7 @@
                                 <field name="enable_async_processing" attrs="{'invisible': [('enable_bulk_operations', '=', False)]}"/>
                                 <field name="max_memory_usage" attrs="{'invisible': [('enable_bulk_operations', '=', False)]}"/>
                                 <field name="skip_existing_check" attrs="{'invisible': [('enable_bulk_operations', '=', False)]}"/>
+                                <field name="timeout_per_group" attrs="{'invisible': [('enable_bulk_operations', '=', False)]}"/>
                             </group>
                             <group attrs="{'invisible': [('sync_type', '!=', 'custom')]}">
                                 <field name="sync_contacts"/>
