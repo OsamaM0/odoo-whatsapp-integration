@@ -150,6 +150,8 @@ class WhatsAppSyncWizard(models.TransientModel):
                     
                     if result.get('success'):
                         groups_synced = result.get('count', 0)
+                        if result.get('error_count', 0) > 0:
+                            errors.append(f"Groups sync completed with {result.get('error_count', 0)} errors")
                     else:
                         errors.append(f"Groups sync: {result.get('message', 'Unknown error')}")
                         errors_count += 1
@@ -169,10 +171,12 @@ class WhatsAppSyncWizard(models.TransientModel):
                         result = self._sync_messages_bulk()
                     else:
                         with self.env.cr.savepoint():
-                            result = self.env['whatsapp.message'].sync_all_messages_from_api()
+                            result = self.env['whatsapp.message'].sync_all_messages_from_api(count=30)  # Reduced batch size
                     
                     if result.get('success'):
                         messages_synced = result.get('count', 0)
+                        if result.get('error_count', 0) > 0:
+                            errors.append(f"Messages sync completed with {result.get('error_count', 0)} errors")
                     else:
                         errors.append(f"Messages sync: {result.get('message', 'Unknown error')}")
                         errors_count += 1
@@ -196,6 +200,8 @@ class WhatsAppSyncWizard(models.TransientModel):
                     
                     if result.get('success'):
                         group_members_synced = result.get('count', 0)
+                        if result.get('error_count', 0) > 0:
+                            errors.append(f"Group members sync completed with {result.get('error_count', 0)} errors")
                     else:
                         errors.append(f"Group members sync: {result.get('message', 'Unknown error')}")
                         errors_count += 1

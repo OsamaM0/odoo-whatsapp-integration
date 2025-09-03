@@ -194,10 +194,10 @@ for config in configs:
                         _logger.error(f"Error syncing groups for config {config.name}: {str(e)}")
                         errors.append(f"Config {config.name} - Groups error: {str(e)}")
                     
-                    # Sync messages with transaction isolation
+                    # Sync messages with transaction isolation and reduced batch size for stability
                     try:
                         with self.env.cr.savepoint():
-                            message_result = sync_env['whatsapp.message'].sync_all_messages_from_api(count=50)
+                            message_result = sync_env['whatsapp.message'].sync_all_messages_from_api(count=30)  # Reduced from 50
                             if message_result.get('success'):
                                 total_messages += message_result.get('count', 0)
                                 _logger.info(f"Synced {message_result.get('count', 0)} messages for config {config.name}")

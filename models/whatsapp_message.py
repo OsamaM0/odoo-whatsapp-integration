@@ -314,20 +314,35 @@ class WhatsAppMessage(models.Model):
 
     @api.model
     def sync_all_messages_from_api(self, count=100, time_from=None, time_to=None, from_me=None, normal_types=False, sort='desc'):
-        """Sync messages directly from WHAPI /messages/list with pagination.
+        """Sync messages directly from WHAPI /messages/list with improved error handling.
         
         Fetches both incoming (from_me=false) and outgoing (from_me=true) messages
         to get complete conversation history.
 
-        Returns a dict: { success, synced_count, error_count, total }
+        Returns a dict: { success, synced_count, error_count, total, message }
         """
+        # Get configuration for the current user
+        config = self.env['whatsapp.configuration'].get_user_configuration()
+        if not config:
+            return {
+                'success': False,
+                'synced_count': 0,
+                'count': 0,
+                'error_count': 1,
+                'total': 0,
+                'message': 'No accessible WhatsApp configuration found for current user'
+            }
+        
         try:
             api_service = self.env['whapi.service']
-
+            
             total_synced = 0
             total_errors = 0
             total_messages = 0
-
+            
+            # Reduce batch size for more stable sync
+            batch_size = min(count, 50)
+            
             # Sync both incoming and outgoing messages
             for from_me_value in [False, True]:  # Get messages from others, then my messages
                 _logger.info(f"Syncing messages with from_me={from_me_value}")
@@ -336,11 +351,14 @@ class WhatsAppMessage(models.Model):
                     offset = 0
                     synced_count = 0
                     error_count = 0
+                    max_pages = 50  # Prevent infinite loops
+                    page_count = 0
 
-                    while True:
+                    while page_count < max_pages:
                         try:
+                            _logger.info(f"Fetching messages page: offset={offset}, batch_size={batch_size}")
                             page = api_service.get_messages(
-                                count=count,
+                                count=batch_size,
                                 offset=offset,
                                 time_from=time_from,
                                 time_to=time_to,
@@ -351,35 +369,56 @@ class WhatsAppMessage(models.Model):
                         except Exception as api_error:
                             _logger.error(f"API error getting messages page (offset={offset}): {api_error}")
                             error_count += 1
-                            break
+                            # Try to continue with reduced batch size
+                            if "timeout" in str(api_error).lower():
+                                batch_size = max(10, batch_size // 2)
+                                _logger.warning(f"API timeout, reducing batch size to {batch_size}")
+                                continue
+                            else:
+                                break
                             
                         messages = page.get('messages', [])
-                        page_count = page.get('count', len(messages))
+                        page_count_api = page.get('count', len(messages))
                         page_total = page.get('total', 0)
                         
                         if from_me_value == False:  # Only count total once
                             total_messages += page_total
 
+                        _logger.info(f"Retrieved {len(messages)} messages in this page")
+                        
+                        if not messages:
+                            _logger.info("No more messages found, ending pagination")
+                            break
+
+                        # Filter allowed types to avoid system messages
                         allowed_types = {'text', 'image', 'video', 'gif', 'audio', 'voice', 'document'}
-                        for msg in messages:
+                        filtered_messages = [msg for msg in messages if msg.get('type') in allowed_types]
+                        
+                        _logger.info(f"Processing {len(filtered_messages)} valid messages")
+                        
+                        for msg in filtered_messages:
                             try:
-                                if msg.get('type') not in allowed_types:
-                                    continue
                                 # Use savepoint for each message to isolate transaction errors
                                 with self.env.cr.savepoint():
                                     created = self.create_from_api_data(msg, 'whapi')
                                     if created:
                                         synced_count += 1
-                            except Exception as e:
-                                _logger.error(f"Failed to create message {msg.get('id')}: {e}")
+                            except Exception as msg_error:
                                 error_count += 1
+                                _logger.error(f"Failed to create message {msg.get('id')}: {msg_error}")
+                                continue
 
                         # Advance pagination
-                        if not messages:
+                        if len(messages) < batch_size:
+                            _logger.info("Reached last page")
                             break
-                        offset += page_count or len(messages)
+                            
+                        offset += page_count_api or len(messages)
                         if page_total is not None and offset >= page_total:
+                            _logger.info("Reached total message count")
                             break
+                            
+                        page_count += 1
 
                 except Exception as direction_error:
                     _logger.error(f"Error syncing messages with from_me={from_me_value}: {direction_error}")
@@ -387,7 +426,9 @@ class WhatsAppMessage(models.Model):
                 
                 total_synced += synced_count
                 total_errors += error_count
-                _logger.info(f"Synced {synced_count} messages with from_me={from_me_value}")
+                _logger.info(f"Completed sync for from_me={from_me_value}: {synced_count} synced, {error_count} errors")
+
+            _logger.info(f"Message sync completed: {total_synced} total synced, {total_errors} total errors")
 
             return {
                 'success': True,
@@ -405,5 +446,6 @@ class WhatsAppMessage(models.Model):
                 'synced_count': 0,
                 'count': 0,
                 'error_count': 1,
+                'total': 0,
                 'message': f'Sync failed: {str(e)}'
             }

@@ -701,12 +701,17 @@ class WhatsAppGroup(models.Model):
     
     @api.model
     def sync_all_groups_from_api(self, provider=None):
-        """Sync all groups from API with provider detection"""
+        """Sync all groups from API with improved error handling and robustness"""
         # Get configuration for the current user
         config = self.env['whatsapp.configuration'].get_user_configuration()
         if not config:
             _logger.warning("No accessible WhatsApp configuration found for current user")
-            return 0
+            return {
+                'success': False,
+                'synced_count': 0,
+                'count': 0,
+                'message': 'No accessible WhatsApp configuration found for current user'
+            }
             
         # Determine which service to use based on configuration or parameter
         if not provider:
@@ -718,74 +723,134 @@ class WhatsAppGroup(models.Model):
             api_service = self.env['wassenger.api']
         
         try:
+            _logger.info(f"Starting group sync with provider: {provider}")
+            
             if provider == 'whapi':
-                # WHAPI pagination
+                # WHAPI pagination with error handling
                 all_groups = []
                 offset = 0
-                count = 100
+                count = 50  # Reduced batch size for more stable sync
+                max_pages = 100  # Prevent infinite loops
+                page_count = 0
                 
-                while True:
-                    result = api_service.get_groups(count=count, offset=offset)
-                    api_groups = result.get('groups', [])
-                    
-                    if not api_groups:
-                        break
-                    
-                    all_groups.extend(api_groups)
-                    
-                    if len(api_groups) < count:
-                        break
-                    
-                    offset += count
+                while page_count < max_pages:
+                    try:
+                        _logger.info(f"Fetching groups page: offset={offset}, count={count}")
+                        result = api_service.get_groups(count=count, offset=offset)
+                        api_groups = result.get('groups', [])
+                        
+                        if not api_groups:
+                            _logger.info("No more groups found, ending pagination")
+                            break
+                        
+                        all_groups.extend(api_groups)
+                        _logger.info(f"Retrieved {len(api_groups)} groups in this page")
+                        
+                        if len(api_groups) < count:
+                            _logger.info("Reached last page")
+                            break
+                        
+                        offset += count
+                        page_count += 1
+                        
+                    except Exception as page_error:
+                        _logger.error(f"Error fetching groups page at offset {offset}: {page_error}")
+                        # Try to continue with next page or break if critical error
+                        if "timeout" in str(page_error).lower():
+                            _logger.warning("API timeout, reducing batch size")
+                            count = max(10, count // 2)
+                        else:
+                            break
             else:
-                # Wassenger method
-                all_groups = api_service.get_groups()
+                # Wassenger method with error handling
+                try:
+                    all_groups = api_service.get_groups()
+                except Exception as e:
+                    _logger.error(f"Error fetching groups from Wassenger: {e}")
+                    return {
+                        'success': False,
+                        'synced_count': 0,
+                        'count': 0,
+                        'message': f'Failed to fetch groups: {str(e)}'
+                    }
+            
+            _logger.info(f"Total groups retrieved: {len(all_groups)}")
             
             synced_count = 0
+            error_count = 0
+            errors = []
             
-            for api_group in all_groups:
-                group_id = api_group.get('id', '')
-                if not group_id:
+            for i, api_group in enumerate(all_groups):
+                try:
+                    group_id = api_group.get('id', '')
+                    if not group_id:
+                        _logger.warning(f"Group {i+1} has no ID, skipping")
+                        continue
+                    
+                    # Use savepoint for each group to isolate transaction errors
+                    with self.env.cr.savepoint():
+                        existing = self.search([('group_id', '=', group_id)], limit=1)
+                        
+                        if not existing:
+                            # Create new group
+                            group = self.create_from_api_data(api_group, provider=provider)
+                            if group:
+                                synced_count += 1
+                                _logger.debug(f"Created new group: {group.name}")
+                        else:
+                            # Update existing group
+                            update_vals = {
+                                'name': api_group.get('name', existing.name),
+                                'description': api_group.get('description', existing.description),
+                                'synced_at': fields.Datetime.now(),
+                                'provider': provider,
+                                'metadata': str(api_group),
+                            }
+                            
+                            if provider == 'wassenger':
+                                update_vals.update({
+                                    'wid': api_group.get('wid', existing.wid),
+                                })
+                            
+                            existing.write(update_vals)
+                            _logger.debug(f"Updated existing group: {existing.name}")
+                            
+                            # Auto-fetch invite link for existing WHAPI groups if not present
+                            if provider == 'whapi' and not existing.invite_code:
+                                try:
+                                    if existing.fetch_invite_link():
+                                        _logger.debug(f"Auto-fetched invite link for group: {existing.name}")
+                                except Exception as invite_error:
+                                    _logger.warning(f"Could not auto-fetch invite link for group {existing.name}: {invite_error}")
+                        
+                except Exception as group_error:
+                    error_count += 1
+                    error_msg = f"Error syncing group {group_id}: {str(group_error)}"
+                    errors.append(error_msg)
+                    _logger.error(error_msg)
                     continue
-                
-                existing = self.search([('group_id', '=', group_id)], limit=1)
-                
-                if not existing:
-                    group = self.create_from_api_data(api_group, provider=provider)
-                    if group:
-                        synced_count += 1
-                else:
-                    # Update existing group
-                    update_vals = {
-                        'name': api_group.get('name', existing.name),
-                        'description': api_group.get('description', existing.description),
-                        'synced_at': fields.Datetime.now(),
-                        'provider': provider,
-                        'metadata': str(api_group),
-                    }
-                    
-                    if provider == 'wassenger':
-                        update_vals.update({
-                            'wid': api_group.get('wid', existing.wid),
-                        })
-                    
-                    existing.write(update_vals)
-                    
-                    # Auto-fetch invite link for existing WHAPI groups if not present
-                    if provider == 'whapi' and not existing.invite_code:
-                        try:
-                            existing.fetch_invite_link()
-                        except Exception as e:
-                            _logger.warning(f"Could not auto-fetch invite link for existing group {existing.name}: {e}")
             
-            return {
-                'success': True,
-                'synced_count': synced_count,
-                'count': synced_count,
-                'message': f'Synced {synced_count} groups successfully'
-            }
+            _logger.info(f"Group sync completed: {synced_count} synced, {error_count} errors")
+            
+            if error_count > 0:
+                return {
+                    'success': True,  # Partial success
+                    'synced_count': synced_count,
+                    'count': synced_count,
+                    'error_count': error_count,
+                    'message': f'Synced {synced_count} groups with {error_count} errors',
+                    'errors': errors[:5]  # Return first 5 errors
+                }
+            else:
+                return {
+                    'success': True,
+                    'synced_count': synced_count,
+                    'count': synced_count,
+                    'message': f'Successfully synced {synced_count} groups'
+                }
+                
         except Exception as e:
-            _logger.error(f"Error syncing groups: {e}")
+            _logger.error(f"Group sync failed: {e}")
             return {
                 'success': False,
                 'synced_count': 0,
@@ -795,46 +860,90 @@ class WhatsAppGroup(models.Model):
 
     @api.model
     def sync_all_group_members_from_api(self):
-        """Sync all group members from WHAPI API"""
+        """Sync all group members from WHAPI API with improved error handling"""
+        # Get configuration for the current user
+        config = self.env['whatsapp.configuration'].get_user_configuration()
+        if not config:
+            return {
+                'success': False,
+                'synced_count': 0,
+                'count': 0,
+                'error_count': 0,
+                'message': 'No accessible WhatsApp configuration found for current user'
+            }
+            
         try:
             # Determine which service to use based on configuration
-            config = self.env['whatsapp.configuration'].get_user_configuration()
-            provider = 'whapi'
-            if config and config.provider == 'whapi':
+            provider = config.provider if config else 'whapi'
+            if provider == 'whapi':
                 api_service = self.env['whapi.service']
             else:
                 api_service = self.env['wassenger.api']
-                provider = 'wassenger'
             
-            # Get all groups that need member sync
-            groups = self.search([('is_active', '=', True)])
+            # Get all active groups that need member sync
+            groups = self.search([
+                ('is_active', '=', True),
+                ('configuration_id', '=', config.id)
+            ])
+            
+            if not groups:
+                return {
+                    'success': True,
+                    'synced_count': 0,
+                    'count': 0,
+                    'error_count': 0,
+                    'message': 'No active groups found to sync'
+                }
+            
+            _logger.info(f"Starting group members sync for {len(groups)} groups")
             
             synced_count = 0
             error_count = 0
+            errors = []
             
             for group in groups:
                 try:
+                    if not group.group_id:
+                        _logger.warning(f"Group {group.name} has no group_id, skipping")
+                        continue
+                    
+                    _logger.info(f"Syncing members for group: {group.name} ({group.group_id})")
+                    
                     # Use savepoint for each group to isolate transaction errors
                     with self.env.cr.savepoint():
-                        if not group.group_id:
-                            continue
-                            
                         # Get group info including participants
                         group_info = api_service.get_group_info(group.group_id)
                         
-                        if group_info and 'participants' in group_info:
-                            participants = group_info.get('participants', [])
+                        if not group_info or 'participants' not in group_info:
+                            _logger.warning(f"No participants data for group {group.name}")
+                            continue
+                        
+                        participants = group_info.get('participants', [])
+                        _logger.info(f"Found {len(participants)} participants for group {group.name}")
+                        
+                        if not participants:
+                            # Clear participants if group has no members
+                            group.write({
+                                'participant_ids': [(6, 0, [])],
+                                'synced_at': fields.Datetime.now(),
+                            })
+                            _logger.info(f"Cleared participants for empty group {group.name}")
+                            synced_count += 1
+                            continue
+                        
+                        # Create or update participant contacts
+                        participant_contact_ids = []
+                        
+                        for participant in participants:
+                            contact_id = participant.get('id', '')
+                            if not contact_id:
+                                continue
                             
-                            # Create or update participant contacts
-                            participant_contacts = []
-                            for participant in participants:
-                                contact_id = participant.get('id', '')
-                                if not contact_id:
-                                    continue
-                                    
+                            try:
                                 # Find existing contact first
                                 contact = self.env['whatsapp.contact'].search([
-                                    ('contact_id', '=', contact_id)
+                                    ('contact_id', '=', contact_id),
+                                    ('configuration_id', '=', config.id)
                                 ], limit=1)
                                 
                                 if not contact:
@@ -843,41 +952,57 @@ class WhatsAppGroup(models.Model):
                                         with self.env.cr.savepoint():
                                             contact_data = {
                                                 'contact_id': contact_id,
-                                                'name': participant.get('name', '') or contact_id,
+                                                'name': participant.get('name', '') or contact_id.replace('@s.whatsapp.net', ''),
                                                 'pushname': participant.get('pushname', ''),
-                                                'phone': participant.get('phone', ''),
+                                                'phone': participant.get('phone', '').replace('@s.whatsapp.net', ''),
                                                 'provider': provider,
                                                 'synced_at': fields.Datetime.now(),
                                                 'is_chat_contact': True,  # Group participants are chat contacts
                                                 'is_phone_contact': False,  # Unless we sync from phone contacts
+                                                'isWAContact': True,
+                                                'configuration_id': config.id,
                                             }
                                             contact = self.env['whatsapp.contact'].create(contact_data)
+                                            _logger.debug(f"Created new participant contact: {contact.name}")
                                     except Exception as contact_error:
                                         _logger.warning(f"Failed to create contact {contact_id} for group {group.name}: {contact_error}")
                                         # Continue without this contact rather than failing the whole group
                                         continue
                                 
                                 if contact:
-                                    participant_contacts.append(contact.id)
+                                    participant_contact_ids.append(contact.id)
+                                    
+                            except Exception as participant_error:
+                                _logger.warning(f"Error processing participant {contact_id} for group {group.name}: {participant_error}")
+                                continue
+                        
+                        # Update group participants
+                        if participant_contact_ids:
+                            group.write({
+                                'participant_ids': [(6, 0, participant_contact_ids)],
+                                'synced_at': fields.Datetime.now(),
+                            })
+                            _logger.info(f"Updated {len(participant_contact_ids)} participants for group {group.name}")
+                            synced_count += 1
+                        else:
+                            _logger.warning(f"No valid participants found for group {group.name}")
                             
-                            # Update group participants
-                            if participant_contacts:
-                                group.write({
-                                    'participant_ids': [(6, 0, participant_contacts)],
-                                    'synced_at': fields.Datetime.now(),
-                                })
-                                synced_count += 1
-                            
-                except Exception as e:
-                    _logger.error(f"Failed to sync members for group {group.name}: {e}")
+                except Exception as group_error:
                     error_count += 1
+                    error_msg = f"Failed to sync members for group {group.name}: {str(group_error)}"
+                    errors.append(error_msg)
+                    _logger.error(error_msg)
+                    continue
+            
+            _logger.info(f"Group members sync completed: {synced_count}/{len(groups)} groups synced successfully, {error_count} errors")
             
             return {
                 'success': True,
                 'synced_count': synced_count,
                 'count': synced_count,  # Add count field for compatibility
                 'error_count': error_count,
-                'message': f'Synced {synced_count} groups with {error_count} errors'
+                'message': f'Synced members for {synced_count} out of {len(groups)} groups with {error_count} errors',
+                'errors': errors[:5] if errors else []  # Return first 5 errors
             }
             
         except Exception as e:
