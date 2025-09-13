@@ -366,12 +366,14 @@ class WhatsAppMessage(models.Model):
 
                     allowed_types = {'text', 'image', 'video', 'gif', 'audio', 'voice', 'document'}
                     for msg in messages:
+                        # Isolate each message in a DB savepoint so one failure doesn't poison the whole transaction
                         try:
-                            if msg.get('type') not in allowed_types:
-                                continue
-                            created = self.create_from_api_data(msg, 'whapi')
-                            if created:
-                                synced_count += 1
+                            with self.env.cr.savepoint():
+                                if msg.get('type') not in allowed_types:
+                                    continue
+                                created = self.create_from_api_data(msg, 'whapi')
+                                if created:
+                                    synced_count += 1
                         except Exception as e:
                             _logger.error(f"Failed to create message {msg.get('id')}: {e}")
                             error_count += 1
@@ -379,7 +381,8 @@ class WhatsAppMessage(models.Model):
                     # Advance pagination
                     if not messages:
                         break
-                    offset += page_count or len(messages)
+                    # Ensure progress even if API doesn't return count
+                    offset += page_count or len(messages) or 0
                     if page_total is not None and offset >= page_total:
                         break
 

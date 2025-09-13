@@ -734,58 +734,69 @@ class WhatsAppGroup(models.Model):
             error_count = 0
             
             for group in groups:
+                # Isolate each group within its own DB savepoint so one failure doesn't abort the entire sync
                 try:
-                    if not group.group_id:
-                        continue
-                        
-                    # Get group info including participants
-                    group_info = api_service.get_group_info(group.group_id)
-                    
-                    if group_info and 'participants' in group_info:
-                        participants = group_info.get('participants', [])
-                        
-                        # Create or update participant contacts
-                        participant_contacts = []
-                        for participant in participants:
-                            contact_id = participant.get('id', '')
-                            if not contact_id:
-                                continue
-                                
-                            # Find or create contact
-                            contact = self.env['whatsapp.contact'].search([
-                                ('contact_id', '=', contact_id)
-                            ], limit=1)
-                            
-                            if not contact:
-                                # Create new contact - group participants are chat contacts
-                                contact_data = {
-                                    'contact_id': contact_id,
-                                    'name': participant.get('name', ''),
-                                    'pushname': participant.get('pushname', ''),
-                                    'phone': participant.get('phone', ''),
-                                    'provider': provider,
+                    with self.env.cr.savepoint():
+                        # Choose correct identifier per provider
+                        group_identifier = group.group_id if provider == 'whapi' else (group.wid or group.group_id)
+
+                        if not group_identifier:
+                            _logger.warning(f"Skipping group {group.name} - no identifier for provider {provider}")
+                            continue
+
+                        # Get group info including participants
+                        group_info = api_service.get_group_info(group_identifier)
+
+                        if group_info and 'participants' in group_info:
+                            participants = group_info.get('participants', [])
+
+                            # Create or update participant contacts
+                            participant_contacts = []
+                            for participant in participants:
+                                try:
+                                    with self.env.cr.savepoint():
+                                        contact_id = participant.get('id', '')
+                                        if not contact_id:
+                                            continue
+
+                                        # Find or create contact
+                                        contact = self.env['whatsapp.contact'].search([
+                                            ('contact_id', '=', contact_id)
+                                        ], limit=1)
+
+                                        if not contact:
+                                            # Create new contact - group participants are chat contacts
+                                            contact_data = {
+                                                'contact_id': contact_id,
+                                                'name': participant.get('name', ''),
+                                                'pushname': participant.get('pushname', ''),
+                                                'phone': participant.get('phone', '') or contact_id.replace('@s.whatsapp.net', '').replace('@c.us', ''),
+                                                'provider': provider,
+                                                'synced_at': fields.Datetime.now(),
+                                                'is_chat_contact': True,  # Group participants are chat contacts
+                                                'is_phone_contact': False,  # Unless we sync from phone contacts
+                                            }
+                                            contact = self.env['whatsapp.contact'].create(contact_data)
+
+                                        if contact:
+                                            participant_contacts.append(contact.id)
+                                except Exception as pe:
+                                    _logger.error(f"Failed to process participant for group {group.name}: {pe}")
+
+                            # Update group participants
+                            if participant_contacts:
+                                group.write({
+                                    'participant_ids': [(6, 0, participant_contacts)],
                                     'synced_at': fields.Datetime.now(),
-                                    'is_chat_contact': True,  # Group participants are chat contacts
-                                    'is_phone_contact': False,  # Unless we sync from phone contacts
-                                }
-                                contact = self.env['whatsapp.contact'].create(contact_data)
-                            
-                            if contact:
-                                participant_contacts.append(contact.id)
-                        
-                        # Update group participants
-                        if participant_contacts:
-                            group.write({
-                                'participant_ids': [(6, 0, participant_contacts)],
-                                'synced_at': fields.Datetime.now(),
-                            })
-                            synced_count += 1
-                            
+                                })
+                                synced_count += 1
                 except Exception as e:
                     _logger.error(f"Failed to sync members for group {group.name}: {e}")
                     error_count += 1
             
             return {
+                'success': True,
+                'count': synced_count,
                 'synced_count': synced_count,
                 'error_count': error_count,
                 'message': f'Synced {synced_count} groups with {error_count} errors'
@@ -794,6 +805,7 @@ class WhatsAppGroup(models.Model):
         except Exception as e:
             _logger.error(f"Group members sync failed: {e}")
             return {
+                'success': False,
                 'synced_count': 0,
                 'error_count': 1,
                 'message': f'Sync failed: {str(e)}'
