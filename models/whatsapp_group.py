@@ -416,8 +416,9 @@ class WhatsAppGroup(models.Model):
                         participant_rank = participant.get('rank', 'member')
                         
                         if participant_id:
-                            # Find or create contact
-                            contact = self.env['whatsapp.contact'].search([
+                            # Find or create contact (bypass config filter to avoid false negatives)
+                            contact_model = self.env['whatsapp.contact'].with_context(skip_config_filter=True).sudo()
+                            contact = contact_model.search([
                                 ('contact_id', '=', participant_id)
                             ], limit=1)
                             
@@ -431,8 +432,9 @@ class WhatsAppGroup(models.Model):
                                     'is_chat_contact': True,
                                     'isWAContact': True,
                                     'synced_at': fields.Datetime.now(),
+                                    'configuration_id': config.id,
                                 }
-                                contact = self.env['whatsapp.contact'].create(contact_vals)
+                                contact = contact_model.create(contact_vals)
                             
                             if contact:
                                 participant_contact_ids.append(contact.id)
@@ -759,8 +761,12 @@ class WhatsAppGroup(models.Model):
                                         if not contact_id:
                                             continue
 
-                                        # Find or create contact
-                                        contact = self.env['whatsapp.contact'].search([
+                                        # Determine configuration for contact visibility
+                                        group_config = group.configuration_id or config
+
+                                        # Find or create contact (bypass config filter to see all records)
+                                        contact_model = self.env['whatsapp.contact'].with_context(skip_config_filter=True).sudo()
+                                        contact = contact_model.search([
                                             ('contact_id', '=', contact_id)
                                         ], limit=1)
 
@@ -775,8 +781,9 @@ class WhatsAppGroup(models.Model):
                                                 'synced_at': fields.Datetime.now(),
                                                 'is_chat_contact': True,  # Group participants are chat contacts
                                                 'is_phone_contact': False,  # Unless we sync from phone contacts
+                                                'configuration_id': group_config.id if group_config else False,
                                             }
-                                            contact = self.env['whatsapp.contact'].create(contact_data)
+                                            contact = contact_model.create(contact_data)
 
                                         if contact:
                                             participant_contacts.append(contact.id)

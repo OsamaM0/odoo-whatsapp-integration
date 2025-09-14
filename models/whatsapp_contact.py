@@ -134,8 +134,8 @@ class WhatsAppContact(models.Model):
             _logger.warning(f"Skipping contact creation due to missing contact_id: {api_data}")
             return False
 
-        # Check for existing contact by contact_id
-        existing = self.search([('contact_id', '=', contact_id)], limit=1)
+        # Check for existing contact by contact_id (bypass config filter to avoid false negatives)
+        existing = self.with_context(skip_config_filter=True).sudo().search([('contact_id', '=', contact_id)], limit=1)
         if existing:
             # Update existing contact with new data
             try:
@@ -449,7 +449,8 @@ class WhatsAppContact(models.Model):
                 try:
                     # Use savepoint for each contact to isolate errors
                     with self.env.cr.savepoint():
-                        existing = self.search([('contact_id', '=', contact_id)], limit=1)
+                        # Search without config filter to avoid duplicate attempts
+                        existing = self.with_context(skip_config_filter=True).sudo().search([('contact_id', '=', contact_id)], limit=1)
                         
                         if not existing:
                             # Create new contact with enhanced data
