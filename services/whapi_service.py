@@ -359,10 +359,12 @@ class WhapiService(models.AbstractModel):
     def get_group_info(self, group_id: str) -> Optional[Dict]:
         """Get group information including participants"""
         try:
+            _logger.info(f"Getting group info for group_id: {group_id}")
             result = self._make_request("GET", f"/groups/{group_id}")
+            _logger.info(f"WHAPI group info response: {result}")
             return result
         except Exception as e:
-            _logger.error(f"Failed to get group info: {e}")
+            _logger.error(f"Failed to get group info for {group_id}: {e}")
             return None
 
     def get_group_invite_code(self, group_id: str) -> Optional[str]:

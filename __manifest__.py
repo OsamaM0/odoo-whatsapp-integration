@@ -30,6 +30,7 @@
         'wizard/whatsapp_send_message_wizard_views.xml',
         'wizard/whatsapp_sync_wizard_views.xml',
         'wizard/whatsapp_remove_member_wizard_views.xml',
+        'wizard/group_member_debug_wizard_views.xml',
         'views/whatsapp_contact_views.xml',
         'views/whatsapp_group_views.xml',
         'views/whatsapp_message_views.xml',

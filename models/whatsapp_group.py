@@ -716,7 +716,7 @@ class WhatsAppGroup(models.Model):
 
     @api.model
     def sync_all_group_members_from_api(self):
-        """Sync all group members from WHAPI API"""
+        """Sync all group members from WHAPI API with improved error handling and debugging"""
         try:
             # Determine which service to use based on configuration
             config = self.env['whatsapp.configuration'].get_user_configuration()
@@ -727,8 +727,18 @@ class WhatsAppGroup(models.Model):
                 api_service = self.env['wassenger.api']
                 provider = 'wassenger'
             
+            _logger.info(f"Starting group member sync using provider: {provider}")
+            
             # Get all groups that need member sync
             groups = self.search([('is_active', '=', True)])
+            _logger.info(f"Found {len(groups)} active groups to sync members for")
+            
+            if not groups:
+                return {
+                    'synced_count': 0,
+                    'error_count': 0,
+                    'message': 'No active groups found to sync'
+                }
             
             synced_count = 0
             error_count = 0
@@ -736,65 +746,239 @@ class WhatsAppGroup(models.Model):
             for group in groups:
                 try:
                     if not group.group_id:
+                        _logger.warning(f"Group {group.name} has no group_id, skipping")
                         continue
-                        
+                    
+                    _logger.info(f"Syncing members for group: {group.name} (ID: {group.group_id})")
+                    
                     # Get group info including participants
                     group_info = api_service.get_group_info(group.group_id)
                     
-                    if group_info and 'participants' in group_info:
-                        participants = group_info.get('participants', [])
+                    if not group_info:
+                        _logger.error(f"Failed to get group info for {group.name} - API returned None")
+                        error_count += 1
+                        continue
+                    
+                    _logger.info(f"API Response for {group.name}: {type(group_info)} with keys: {list(group_info.keys()) if isinstance(group_info, dict) else 'Not a dict'}")
+                    
+                    # Handle different possible response structures
+                    participants = []
+                    
+                    if isinstance(group_info, dict):
+                        # Try different possible field names for participants
+                        participant_fields = ['participants', 'members', 'participants_list', 'group_participants']
                         
-                        # Create or update participant contacts
-                        participant_contacts = []
-                        for participant in participants:
-                            contact_id = participant.get('id', '')
-                            if not contact_id:
+                        for field in participant_fields:
+                            if field in group_info:
+                                participants = group_info[field]
+                                _logger.info(f"Found participants in field '{field}': {len(participants) if isinstance(participants, list) else 'not a list'}")
+                                break
+                        
+                        # If no participants field found, log the structure
+                        if not participants:
+                            _logger.warning(f"No participants field found in group info for {group.name}")
+                            _logger.info(f"Available fields: {list(group_info.keys())}")
+                            # Some APIs might have participants directly in the response
+                            if 'id' in group_info and isinstance(group_info, dict):
+                                # This might be a single group object, check if it has participant data
+                                _logger.info(f"Checking if group_info itself contains participant data")
+                    
+                    if not isinstance(participants, list):
+                        _logger.warning(f"Participants is not a list for group {group.name}: {type(participants)}")
+                        error_count += 1
+                        continue
+                    
+                    if not participants:
+                        _logger.warning(f"No participants found for group {group.name}")
+                        # Still count as successful sync - empty group
+                        group.write({
+                            'participant_ids': [(6, 0, [])],  # Clear existing participants
+                            'synced_at': fields.Datetime.now(),
+                        })
+                        synced_count += 1
+                        continue
+                    
+                    _logger.info(f"Processing {len(participants)} participants for group {group.name}")
+                    
+                    # Create or update participant contacts
+                    participant_contacts = []
+                    
+                    for i, participant in enumerate(participants):
+                        try:
+                            _logger.info(f"Processing participant {i+1}/{len(participants)}: {participant}")
+                            
+                            if not isinstance(participant, dict):
+                                _logger.warning(f"Participant is not a dict: {type(participant)} - {participant}")
                                 continue
-                                
-                            # Find or create contact
+                            
+                            # Try different possible field names for contact ID
+                            contact_id = None
+                            id_fields = ['id', 'contact_id', 'phone', 'number', 'jid']
+                            
+                            for field in id_fields:
+                                if field in participant and participant[field]:
+                                    contact_id = participant[field]
+                                    break
+                            
+                            if not contact_id:
+                                _logger.warning(f"Participant missing contact ID: {participant}")
+                                continue
+                            
+                            _logger.info(f"Using contact_id: {contact_id}")
+                            
+                            # Find existing contact
                             contact = self.env['whatsapp.contact'].search([
                                 ('contact_id', '=', contact_id)
                             ], limit=1)
                             
                             if not contact:
-                                # Create new contact - group participants are chat contacts
+                                # Extract contact data with fallbacks
+                                name = participant.get('name', '') or participant.get('pushname', '') or participant.get('display_name', '')
+                                pushname = participant.get('pushname', '') or participant.get('display_name', '')
+                                
+                                # Extract phone number
+                                phone = ''
+                                if '@s.whatsapp.net' in contact_id:
+                                    phone = contact_id.replace('@s.whatsapp.net', '')
+                                elif '@c.us' in contact_id:
+                                    phone = contact_id.replace('@c.us', '')
+                                else:
+                                    phone = participant.get('phone', '') or participant.get('number', '')
+                                
+                                # If still no name, use phone as name
+                                if not name and phone:
+                                    name = phone
+                                
                                 contact_data = {
                                     'contact_id': contact_id,
-                                    'name': participant.get('name', ''),
-                                    'pushname': participant.get('pushname', ''),
-                                    'phone': participant.get('phone', ''),
+                                    'name': name or contact_id,  # Fallback to contact_id if no name
+                                    'pushname': pushname,
+                                    'phone': phone,
                                     'provider': provider,
                                     'synced_at': fields.Datetime.now(),
-                                    'is_chat_contact': True,  # Group participants are chat contacts
-                                    'is_phone_contact': False,  # Unless we sync from phone contacts
+                                    'is_chat_contact': True,
+                                    'is_phone_contact': False,
                                 }
-                                contact = self.env['whatsapp.contact'].create(contact_data)
+                                
+                                _logger.info(f"Creating new contact: {contact_data}")
+                                
+                                try:
+                                    contact = self.env['whatsapp.contact'].create(contact_data)
+                                    _logger.info(f"✅ Created contact: {contact.name} (ID: {contact.id})")
+                                except Exception as contact_error:
+                                    _logger.error(f"❌ Failed to create contact {contact_id}: {contact_error}")
+                                    continue
+                            else:
+                                _logger.info(f"✅ Found existing contact: {contact.name} (ID: {contact.id})")
                             
                             if contact:
                                 participant_contacts.append(contact.id)
+                                
+                        except Exception as participant_error:
+                            _logger.error(f"Error processing participant {participant}: {participant_error}")
+                            continue
+                    
+                    # Update group participants
+                    _logger.info(f"Updating group {group.name} with {len(participant_contacts)} participants")
+                    
+                    try:
+                        group.write({
+                            'participant_ids': [(6, 0, participant_contacts)],
+                            'synced_at': fields.Datetime.now(),
+                        })
+                        synced_count += 1
+                        _logger.info(f"✅ Successfully synced {len(participant_contacts)} members for group {group.name}")
+                    except Exception as update_error:
+                        _logger.error(f"❌ Failed to update group {group.name}: {update_error}")
+                        error_count += 1
                         
-                        # Update group participants
-                        if participant_contacts:
-                            group.write({
-                                'participant_ids': [(6, 0, participant_contacts)],
-                                'synced_at': fields.Datetime.now(),
-                            })
-                            synced_count += 1
-                            
-                except Exception as e:
-                    _logger.error(f"Failed to sync members for group {group.name}: {e}")
+                except Exception as group_error:
+                    _logger.error(f"❌ Failed to sync members for group {group.name}: {group_error}")
                     error_count += 1
+            
+            result_message = f'Synced {synced_count} groups with {error_count} errors'
+            _logger.info(f"Group member sync completed: {result_message}")
             
             return {
                 'synced_count': synced_count,
                 'error_count': error_count,
-                'message': f'Synced {synced_count} groups with {error_count} errors'
+                'message': result_message
             }
             
         except Exception as e:
-            _logger.error(f"Group members sync failed: {e}")
+            error_message = f"Group members sync failed: {e}"
+            _logger.error(error_message)
             return {
                 'synced_count': 0,
                 'error_count': 1,
-                'message': f'Sync failed: {str(e)}'
+                'message': error_message
             }
+
+    @api.model
+    def test_group_member_sync_debug(self, group_id=None):
+        """Debug method to test group member sync for a specific group"""
+        try:
+            config = self.env['whatsapp.configuration'].get_user_configuration()
+            if not config:
+                return {'error': 'No WhatsApp configuration found'}
+            
+            api_service = self.env['whapi.service'] if config.provider == 'whapi' else self.env['wassenger.api']
+            
+            if group_id:
+                # Test specific group
+                group = self.search([('group_id', '=', group_id)], limit=1)
+                if not group:
+                    return {'error': f'No group found with ID: {group_id}'}
+                groups_to_test = [group]
+            else:
+                # Test first active group
+                groups_to_test = self.search([('is_active', '=', True)], limit=1)
+                if not groups_to_test:
+                    return {'error': 'No active groups found'}
+            
+            results = []
+            
+            for group in groups_to_test:
+                _logger.info(f"🔍 DEBUG: Testing group {group.name} (ID: {group.group_id})")
+                
+                # Get group info
+                group_info = api_service.get_group_info(group.group_id)
+                
+                result = {
+                    'group_name': group.name,
+                    'group_id': group.group_id,
+                    'api_response_type': type(group_info).__name__,
+                    'api_response_keys': list(group_info.keys()) if isinstance(group_info, dict) else None,
+                    'participants_found': False,
+                    'participants_count': 0,
+                    'sample_participant': None,
+                    'full_response': group_info
+                }
+                
+                if isinstance(group_info, dict):
+                    # Check for participants in different field names
+                    participant_fields = ['participants', 'members', 'participants_list', 'group_participants']
+                    
+                    for field in participant_fields:
+                        if field in group_info:
+                            participants = group_info[field]
+                            result['participants_found'] = True
+                            result['participants_field'] = field
+                            result['participants_count'] = len(participants) if isinstance(participants, list) else 'not a list'
+                            
+                            if isinstance(participants, list) and participants:
+                                result['sample_participant'] = participants[0]
+                            break
+                
+                results.append(result)
+                _logger.info(f"🔍 DEBUG Result: {result}")
+            
+            return {
+                'success': True,
+                'results': results
+            }
+            
+        except Exception as e:
+            error_msg = f"Debug test failed: {e}"
+            _logger.error(error_msg)
+            return {'error': error_msg}

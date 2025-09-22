@@ -14,3 +14,5 @@ access_whatsapp_send_message_wizard_user,whatsapp.send.message.wizard user,model
 access_whatsapp_sync_wizard_admin,whatsapp.sync.wizard admin,model_whatsapp_sync_wizard,group_whatsapp_admin,1,1,1,1
 access_whatsapp_sync_wizard_user,whatsapp.sync.wizard user,model_whatsapp_sync_wizard,group_whatsapp_user,1,1,1,1
 access_whatsapp_remove_member_wizard,whatsapp.remove.member.wizard,model_whatsapp_remove_member_wizard,group_whatsapp_admin,1,1,1,1
+access_group_member_debug_wizard_admin,group.member.debug.wizard admin,model_group_member_debug_wizard,group_whatsapp_admin,1,1,1,1
+access_group_member_debug_wizard_user,group.member.debug.wizard user,model_group_member_debug_wizard,group_whatsapp_user,1,1,1,1
