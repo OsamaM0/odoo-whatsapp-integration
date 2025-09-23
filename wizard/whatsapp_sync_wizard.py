@@ -21,6 +21,8 @@ class WhatsAppSyncWizard(models.TransientModel):
     sync_groups = fields.Boolean('Sync Groups', default=True)
     sync_messages = fields.Boolean('Sync Messages', default=True)
     sync_group_members = fields.Boolean('Sync Group Members', default=True)
+    auto_fetch_invite_codes = fields.Boolean('Auto-fetch Invite Codes', default=True, 
+                                            help='Automatically fetch invite codes after group sync')
     
     # Progress tracking
     is_syncing = fields.Boolean('Is Syncing', default=False)
@@ -118,6 +120,19 @@ class WhatsAppSyncWizard(models.TransientModel):
                     with self.env.cr.savepoint():
                         synced_count = self.env['whatsapp.group'].sync_all_groups_from_api()
                         self.groups_synced = synced_count
+                        
+                        # Auto-fetch invite codes if enabled and groups were synced
+                        if self.auto_fetch_invite_codes and synced_count > 0:
+                            self.write({
+                                'current_operation': 'Fetching invite codes...',
+                            })
+                            try:
+                                invite_result = self.env['whatsapp.group']._auto_fetch_invite_codes()
+                                _logger.info(f"Auto-fetched invite codes: {invite_result.get('message', 'Unknown result')}")
+                            except Exception as invite_error:
+                                _logger.error(f"Auto invite code fetch error: {invite_error}")
+                                errors.append(f"Invite codes fetch error: {str(invite_error)}")
+                        
                 except Exception as e:
                     _logger.error(f"Groups sync error: {str(e)}")
                     errors.append(f"Groups sync error: {str(e)}")

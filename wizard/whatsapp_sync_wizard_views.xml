@@ -34,6 +34,7 @@
                                 <field name="sync_groups"/>
                                 <field name="sync_messages"/>
                                 <field name="sync_group_members"/>
+                                <field name="auto_fetch_invite_codes" attrs="{'invisible': [('sync_groups', '=', False)]}"/>
                             </group>
                         </group>
                         

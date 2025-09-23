@@ -1,6 +1,6 @@
 from odoo import models, fields, api, SUPERUSER_ID
 from odoo.exceptions import ValidationError
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 from ..constants import PROVIDERS
 
@@ -709,6 +709,11 @@ class WhatsAppGroup(models.Model):
                     
                     existing.write(update_vals)
             
+            # After syncing all groups, automatically fetch invite codes for WHAPI groups
+            if provider == 'whapi' and synced_count > 0:
+                _logger.info(f"Auto-fetching invite codes for {synced_count} synced groups...")
+                self._auto_fetch_invite_codes()
+            
             return synced_count
         except Exception as e:
             _logger.error(f"Error syncing groups: {e}")
@@ -1038,6 +1043,134 @@ class WhatsAppGroup(models.Model):
             error_msg = f"Debug test failed: {e}"
             _logger.error(error_msg)
             return {'error': error_msg}
+
+    @api.model 
+    def _auto_fetch_invite_codes(self):
+        """Automatically fetch invite codes for all WHAPI groups that don't have them"""
+        try:
+            api_service = self.env['whapi.service']
+            
+            # Find WHAPI groups without invite codes or with old codes (older than 30 days)
+            thirty_days_ago = fields.Datetime.now() - timedelta(days=30)
+            groups_needing_codes = self.search([
+                ('provider', '=', 'whapi'),
+                ('group_id', '!=', False),
+                ('is_active', '=', True),
+                '|',
+                ('invite_code', '=', False),
+                ('invite_fetched_at', '<', thirty_days_ago)
+            ])
+            
+            _logger.info(f"Found {len(groups_needing_codes)} groups needing invite code updates")
+            
+            fetched_count = 0
+            error_count = 0
+            
+            for group in groups_needing_codes:
+                try:
+                    _logger.info(f"Fetching invite code for group: {group.name}")
+                    invite_code = api_service.get_group_invite_code(group.group_id)
+                    
+                    if invite_code:
+                        group.write({
+                            'invite_code': invite_code,
+                            'invite_fetched_at': fields.Datetime.now(),
+                        })
+                        fetched_count += 1
+                        _logger.info(f"✅ Updated invite code for {group.name}")
+                    else:
+                        _logger.warning(f"❌ No invite code returned for {group.name}")
+                        error_count += 1
+                    
+                    # Small delay to avoid rate limiting
+                    import time
+                    time.sleep(0.5)
+                    
+                except Exception as invite_error:
+                    _logger.error(f"❌ Failed to fetch invite code for {group.name}: {invite_error}")
+                    error_count += 1
+                    continue
+            
+            # Commit the invite code updates
+            try:
+                self.env.cr.commit()
+                _logger.info(f"✅ Auto-fetch complete: {fetched_count} invite codes updated, {error_count} errors")
+            except Exception as commit_error:
+                _logger.error(f"Failed to commit invite code updates: {commit_error}")
+            
+            return {
+                'fetched_count': fetched_count,
+                'error_count': error_count,
+                'message': f'Updated {fetched_count} invite codes with {error_count} errors'
+            }
+            
+        except Exception as e:
+            _logger.error(f"Auto invite code fetch failed: {e}")
+            return {
+                'fetched_count': 0,
+                'error_count': 1,
+                'message': f'Auto-fetch failed: {str(e)}'
+            }
+
+    def action_batch_generate_invite_codes(self):
+        """Generate invite codes for all selected groups"""
+        whapi_groups = self.filtered(lambda g: g.provider == 'whapi' and g.group_id)
+        
+        if not whapi_groups:
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'title': 'No WHAPI Groups',
+                    'message': 'No WHAPI groups selected or groups need to be synced first',
+                    'type': 'warning',
+                }
+            }
+        
+        try:
+            api_service = self.env['whapi.service']
+            success_count = 0
+            error_count = 0
+            
+            for group in whapi_groups:
+                try:
+                    invite_code = api_service.get_group_invite_code(group.group_id)
+                    if invite_code:
+                        group.write({
+                            'invite_code': invite_code,
+                            'invite_fetched_at': fields.Datetime.now(),
+                        })
+                        success_count += 1
+                    else:
+                        error_count += 1
+                except Exception:
+                    error_count += 1
+                
+                # Small delay to avoid rate limiting
+                import time
+                time.sleep(0.3)
+            
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'title': 'Batch Invite Code Generation',
+                    'message': f'Successfully generated {success_count} invite codes, {error_count} failed',
+                    'type': 'success' if success_count > 0 else 'warning',
+                    'sticky': True,
+                }
+            }
+            
+        except Exception as e:
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'title': 'Batch Generation Failed',
+                    'message': f'Error: {str(e)}',
+                    'type': 'danger',
+                }
+            }
 
     def action_check_participants(self):
         """Debug action to check current participants"""
