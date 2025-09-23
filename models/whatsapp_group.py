@@ -862,6 +862,9 @@ class WhatsAppGroup(models.Model):
                                 if not name and phone:
                                     name = phone
                                 
+                                # Get current configuration for proper assignment
+                                config = self.env['whatsapp.configuration'].get_user_configuration()
+                                
                                 contact_data = {
                                     'contact_id': whatsapp_contact_id,  # Use WhatsApp format
                                     'name': name or phone_number,  # Fallback to phone if no name
@@ -871,6 +874,7 @@ class WhatsAppGroup(models.Model):
                                     'synced_at': fields.Datetime.now(),
                                     'is_chat_contact': True,
                                     'is_phone_contact': False,
+                                    'configuration_id': config.id if config else False,
                                 }
                                 
                                 _logger.info(f"Creating new contact: {contact_data}")
@@ -879,8 +883,22 @@ class WhatsAppGroup(models.Model):
                                     contact = self.env['whatsapp.contact'].create(contact_data)
                                     _logger.info(f"✅ Created contact: {contact.name} (ID: {contact.id})")
                                 except Exception as contact_error:
-                                    _logger.error(f"❌ Failed to create contact {contact_id}: {contact_error}")
-                                    continue
+                                    # Check if it's a duplicate error and try to find existing contact
+                                    if 'unique' in str(contact_error).lower() or 'duplicate' in str(contact_error).lower():
+                                        _logger.warning(f"Contact already exists, searching again: {whatsapp_contact_id}")
+                                        contact = self.env['whatsapp.contact'].search([
+                                            '|', 
+                                            ('contact_id', '=', whatsapp_contact_id),
+                                            ('phone', '=', phone_number)
+                                        ], limit=1)
+                                        if contact:
+                                            _logger.info(f"✅ Found existing contact after duplicate error: {contact.name}")
+                                        else:
+                                            _logger.error(f"❌ Still couldn't find contact after duplicate error: {contact_error}")
+                                            continue
+                                    else:
+                                        _logger.error(f"❌ Failed to create contact {whatsapp_contact_id}: {contact_error}")
+                                        continue
                             else:
                                 _logger.info(f"✅ Found existing contact: {contact.name} (ID: {contact.id})")
                             
@@ -891,16 +909,34 @@ class WhatsAppGroup(models.Model):
                             _logger.error(f"Error processing participant {participant}: {participant_error}")
                             continue
                     
-                    # Update group participants
+                    # Update group participants in batches to avoid SQL query limits
                     _logger.info(f"Updating group {group.name} with {len(participant_contacts)} participants")
                     
                     try:
-                        group.write({
-                            'participant_ids': [(6, 0, participant_contacts)],
-                            'synced_at': fields.Datetime.now(),
-                        })
+                        if participant_contacts:
+                            # Process in batches of 100 to avoid SQL query limits
+                            batch_size = 100
+                            total_participants = len(participant_contacts)
+                            
+                            # Clear existing participants first
+                            group.write({'participant_ids': [(5, 0, 0)]})
+                            
+                            # Add participants in batches
+                            for i in range(0, total_participants, batch_size):
+                                batch = participant_contacts[i:i + batch_size]
+                                _logger.info(f"Adding batch {i//batch_size + 1}: contacts {i+1}-{min(i+batch_size, total_participants)} of {total_participants}")
+                                
+                                # Add this batch of participants
+                                group.write({'participant_ids': [(4, contact_id, 0) for contact_id in batch]})
+                        else:
+                            # Clear participants for empty groups
+                            group.write({'participant_ids': [(5, 0, 0)]})
+                        
+                        # Update sync timestamp
+                        group.write({'synced_at': fields.Datetime.now()})
                         synced_count += 1
                         _logger.info(f"✅ Successfully synced {len(participant_contacts)} members for group {group.name}")
+                        
                     except Exception as update_error:
                         _logger.error(f"❌ Failed to update group {group.name}: {update_error}")
                         error_count += 1
