@@ -826,9 +826,28 @@ class WhatsAppGroup(models.Model):
                             
                             _logger.info(f"Using contact_id: {contact_id}")
                             
-                            # Find existing contact
+                            # Convert phone number to WhatsApp contact ID format if needed
+                            if '@' not in contact_id and contact_id.isdigit():
+                                # This is a phone number, convert to WhatsApp format
+                                whatsapp_contact_id = f"{contact_id}@s.whatsapp.net"
+                                phone_number = contact_id
+                            else:
+                                # Already in WhatsApp format or other format
+                                whatsapp_contact_id = contact_id
+                                if '@s.whatsapp.net' in contact_id:
+                                    phone_number = contact_id.replace('@s.whatsapp.net', '')
+                                elif '@c.us' in contact_id:
+                                    phone_number = contact_id.replace('@c.us', '')
+                                else:
+                                    phone_number = contact_id
+                            
+                            _logger.info(f"Converted to WhatsApp format: {whatsapp_contact_id}, phone: {phone_number}")
+                            
+                            # Find existing contact by either WhatsApp ID or phone number
                             contact = self.env['whatsapp.contact'].search([
-                                ('contact_id', '=', contact_id)
+                                '|', 
+                                ('contact_id', '=', whatsapp_contact_id),
+                                ('phone', '=', phone_number)
                             ], limit=1)
                             
                             if not contact:
@@ -836,22 +855,16 @@ class WhatsAppGroup(models.Model):
                                 name = participant.get('name', '') or participant.get('pushname', '') or participant.get('display_name', '')
                                 pushname = participant.get('pushname', '') or participant.get('display_name', '')
                                 
-                                # Extract phone number
-                                phone = ''
-                                if '@s.whatsapp.net' in contact_id:
-                                    phone = contact_id.replace('@s.whatsapp.net', '')
-                                elif '@c.us' in contact_id:
-                                    phone = contact_id.replace('@c.us', '')
-                                else:
-                                    phone = participant.get('phone', '') or participant.get('number', '')
+                                # Use the phone number we extracted above
+                                phone = phone_number
                                 
                                 # If still no name, use phone as name
                                 if not name and phone:
                                     name = phone
                                 
                                 contact_data = {
-                                    'contact_id': contact_id,
-                                    'name': name or contact_id,  # Fallback to contact_id if no name
+                                    'contact_id': whatsapp_contact_id,  # Use WhatsApp format
+                                    'name': name or phone_number,  # Fallback to phone if no name
                                     'pushname': pushname,
                                     'phone': phone,
                                     'provider': provider,
