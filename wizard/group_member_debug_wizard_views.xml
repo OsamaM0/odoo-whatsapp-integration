@@ -10,6 +10,7 @@
                     <header>
                         <button name="action_test_group_sync" string="🔍 Test Group Sync" type="object" class="btn-primary"/>
                         <button name="action_run_actual_sync" string="🔄 Run Actual Sync" type="object" class="btn-warning"/>
+                        <button name="action_refresh_and_view_groups" string="📋 View Groups" type="object" class="btn-secondary"/>
                     </header>
                     <sheet>
                         <div class="oe_title">

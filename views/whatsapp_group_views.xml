@@ -45,6 +45,9 @@
                         <button name="generate_invite_code" string="Generate Invite Code" type="object" 
                                 class="btn-info" icon="fa-link"
                                 attrs="{'invisible': ['|', ('group_id', '=', False), ('provider', '!=', 'whapi')]}"/>
+                        <button name="action_check_participants" string="Check Participants" type="object" 
+                                class="btn-secondary" icon="fa-users"
+                                attrs="{'invisible': [('group_id', '=', False)]}"/>
                         <field name="is_active" widget="boolean_toggle"/>
                     </header>
                     <sheet>

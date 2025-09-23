@@ -882,6 +882,8 @@ class WhatsAppGroup(models.Model):
                                 try:
                                     contact = self.env['whatsapp.contact'].create(contact_data)
                                     _logger.info(f"✅ Created contact: {contact.name} (ID: {contact.id})")
+                                    # Commit contact creation immediately
+                                    self.env.cr.commit()
                                 except Exception as contact_error:
                                     # Check if it's a duplicate error and try to find existing contact
                                     if 'unique' in str(contact_error).lower() or 'duplicate' in str(contact_error).lower():
@@ -937,8 +939,13 @@ class WhatsAppGroup(models.Model):
                         synced_count += 1
                         _logger.info(f"✅ Successfully synced {len(participant_contacts)} members for group {group.name}")
                         
+                        # Commit the transaction for this group to ensure data is saved
+                        self.env.cr.commit()
+                        
                     except Exception as update_error:
                         _logger.error(f"❌ Failed to update group {group.name}: {update_error}")
+                        # Rollback this group's transaction but continue with others
+                        self.env.cr.rollback()
                         error_count += 1
                         
                 except Exception as group_error:
@@ -1031,3 +1038,16 @@ class WhatsAppGroup(models.Model):
             error_msg = f"Debug test failed: {e}"
             _logger.error(error_msg)
             return {'error': error_msg}
+
+    def action_check_participants(self):
+        """Debug action to check current participants"""
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': f'Group: {self.name}',
+                'message': f'Current participants: {len(self.participant_ids)}\nLast synced: {self.synced_at or "Never"}',
+                'type': 'info',
+                'sticky': True,
+            }
+        }

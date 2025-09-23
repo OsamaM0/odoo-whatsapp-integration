@@ -86,13 +86,33 @@ class GroupMemberDebugWizard(models.TransientModel):
         try:
             result = self.env['whatsapp.group'].sync_all_group_members_from_api()
             
-            self.debug_result = f"""
+            # Force database commit
+            self.env.cr.commit()
+            
+            # Refresh the group data to see changes
+            if self.group_id:
+                self.group_id.invalidate_cache()
+                participant_count = len(self.group_id.participant_ids)
+                self.debug_result = f"""
 ✅ Group Member Sync Completed
 
 📊 Results:
 - Synced Groups: {result.get('synced_count', 0)}
 - Errors: {result.get('error_count', 0)}
 - Message: {result.get('message', 'No message')}
+
+📋 Group '{self.group_id.name}' now has {participant_count} participants
+"""
+            else:
+                self.debug_result = f"""
+✅ Group Member Sync Completed
+
+📊 Results:
+- Synced Groups: {result.get('synced_count', 0)}
+- Errors: {result.get('error_count', 0)}
+- Message: {result.get('message', 'No message')}
+
+💡 Tip: Refresh your browser or go to WhatsApp > Groups to see the updated participant lists
 """
             
             return {
@@ -116,3 +136,14 @@ class GroupMemberDebugWizard(models.TransientModel):
                 'target': 'new',
                 'context': self.env.context,
             }
+
+    def action_refresh_and_view_groups(self):
+        """Refresh and show groups list"""
+        return {
+            'type': 'ir.actions.act_window',
+            'name': 'WhatsApp Groups',
+            'res_model': 'whatsapp.group',
+            'view_mode': 'tree,form',
+            'target': 'current',
+            'context': {'search_default_is_active': 1}
+        }
