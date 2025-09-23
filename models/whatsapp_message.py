@@ -145,8 +145,18 @@ class WhatsAppMessage(models.Model):
     @api.model
     def create_from_api_data(self, api_data, provider='whapi'):
         """Create or update a message from provider API data (supports WHAPI list endpoint)."""
-        # Get configuration for the current user
-        config = self.env['whatsapp.configuration'].get_user_configuration()
+        # Get configuration for the current user with error handling
+        try:
+            config = self.env['whatsapp.configuration'].get_user_configuration()
+        except Exception as config_error:
+            _logger.error(f"Failed to get user configuration: {config_error}")
+            # Try to rollback and continue
+            try:
+                self.env.cr.rollback()
+            except:
+                pass
+            return False
+            
         if not config:
             _logger.warning("No accessible WhatsApp configuration found for current user")
             return False
@@ -188,8 +198,16 @@ class WhatsAppMessage(models.Model):
                 'provider': provider,
                 'metadata': metadata,
             }
-            existing.write(update_vals)
-            return existing
+            try:
+                existing.write(update_vals)
+                return existing
+            except Exception as update_error:
+                _logger.error(f"Failed to update existing message {message_id}: {update_error}")
+                try:
+                    self.env.cr.rollback()
+                except:
+                    pass
+                return False
 
         # Create new message
         vals = {
@@ -270,6 +288,12 @@ class WhatsAppMessage(models.Model):
             return self.create(vals)
         except Exception as e:
             _logger.error(f"Failed to create message {message_id}: {e}")
+            # If transaction is aborted, try to rollback and continue
+            try:
+                self.env.cr.rollback()
+                _logger.warning(f"Rolled back transaction for message {message_id}")
+            except:
+                pass
             return False
     
     def sync_message_status(self):
@@ -365,16 +389,56 @@ class WhatsAppMessage(models.Model):
                         total_messages += page_total
 
                     allowed_types = {'text', 'image', 'video', 'gif', 'audio', 'voice', 'document'}
+                    batch_messages = []
+                    
+                    # Collect messages in batch
                     for msg in messages:
                         try:
                             if msg.get('type') not in allowed_types:
                                 continue
-                            created = self.create_from_api_data(msg, 'whapi')
-                            if created:
-                                synced_count += 1
+                            batch_messages.append(msg)
                         except Exception as e:
-                            _logger.error(f"Failed to create message {msg.get('id')}: {e}")
+                            _logger.error(f"Error filtering message {msg.get('id')}: {e}")
                             error_count += 1
+                    
+                    # Process messages in smaller batches to avoid transaction issues
+                    batch_size = 50  # Process 50 messages at a time
+                    for i in range(0, len(batch_messages), batch_size):
+                        batch = batch_messages[i:i + batch_size]
+                        _logger.info(f"Processing message batch {i//batch_size + 1}: {i+1}-{min(i+batch_size, len(batch_messages))} of {len(batch_messages)}")
+                        
+                        batch_success = 0
+                        batch_errors = 0
+                        
+                        for msg in batch:
+                            try:
+                                created = self.create_from_api_data(msg, 'whapi')
+                                if created:
+                                    batch_success += 1
+                            except Exception as e:
+                                _logger.error(f"Failed to create message {msg.get('id')}: {e}")
+                                batch_errors += 1
+                                # Try to continue with next message
+                                try:
+                                    self.env.cr.rollback()
+                                except:
+                                    pass
+                        
+                        # Commit this batch
+                        try:
+                            if batch_success > 0:
+                                self.env.cr.commit()
+                                _logger.info(f"✅ Committed batch: {batch_success} messages created")
+                        except Exception as commit_error:
+                            _logger.error(f"Failed to commit batch: {commit_error}")
+                            batch_errors += len(batch)
+                            try:
+                                self.env.cr.rollback()
+                            except:
+                                pass
+                        
+                        synced_count += batch_success
+                        error_count += batch_errors
 
                     # Advance pagination
                     if not messages:
@@ -386,6 +450,13 @@ class WhatsAppMessage(models.Model):
                 total_synced += synced_count
                 total_errors += error_count
                 _logger.info(f"Synced {synced_count} messages with from_me={from_me_value}")
+
+            # Final commit to ensure all data is saved
+            try:
+                self.env.cr.commit()
+                _logger.info(f"✅ Final commit: Total {total_synced} messages synced")
+            except Exception as final_commit_error:
+                _logger.error(f"Failed final commit: {final_commit_error}")
 
             return {
                 'success': True,
