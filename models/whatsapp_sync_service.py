@@ -17,90 +17,20 @@ class WhatsAppSyncService(models.Model):
     ], string='Sync Status', default='idle')
     last_sync_message = fields.Text('Last Sync Message')
 
-    def _create_cron_jobs(self):
-        """Create cron jobs programmatically to avoid XML schema issues"""
-        try:
-            # Check if cron jobs already exist
-            existing_cron = self.env['ir.cron'].search([
-                ('name', 'in', ['WhatsApp Data Sync', 'WhatsApp Data Sync (Frequent)', 'WhatsApp Full Data Sync (Daily)'])
-            ])
-            
-            if existing_cron:
-                _logger.info("WhatsApp cron jobs already exist, skipping creation")
-                return existing_cron
-            
-            # Get model reference
-            model_id = self.env['ir.model'].search([('model', '=', 'whatsapp.sync.service')], limit=1)
-            if not model_id:
-                _logger.error("Could not find whatsapp.sync.service model")
-                return
-            
-            # Create hourly sync cron (active)
-            hourly_cron = self.env['ir.cron'].create({
-                'name': 'WhatsApp Data Sync',
-                'model_id': model_id.id,
-                'state': 'code',
-                'code': 'model.cron_sync_all_data()',
-                'interval_number': 1,
-                'interval_type': 'hours',
-                'numbercall': -1,
-                'active': True,
-                'user_id': self.env.ref('base.user_root').id,
-                'doall': False,
-            })
-            
-            # Create frequent sync cron (inactive)
-            frequent_cron = self.env['ir.cron'].create({
-                'name': 'WhatsApp Data Sync (Frequent)',
-                'model_id': model_id.id,
-                'state': 'code',
-                'code': 'model.cron_sync_all_data()',
-                'interval_number': 30,
-                'interval_type': 'minutes',
-                'numbercall': -1,
-                'active': False,
-                'user_id': self.env.ref('base.user_root').id,
-                'doall': False,
-            })
-            
-            # Create daily sync cron (inactive)
-            daily_sync_code = """# Full daily sync with more messages
-configs = env['whatsapp.configuration'].search([('active', '=', True)])
-for config in configs:
-    sync_env = env.with_context(whatsapp_config_id=config.id, skip_config_filter=True)
-    try:
-        sync_env['whatsapp.message'].sync_all_messages_from_api(count=200)
-        sync_env['whatsapp.contact'].sync_all_contacts_from_api()
-        sync_env['whatsapp.group'].sync_all_groups_from_api()
-        sync_env['whatsapp.group'].sync_all_group_members_from_api()
-    except Exception as e:
-        import logging
-        logging.getLogger(__name__).error(f"Daily sync error for config {config.name}: {str(e)}")"""
-            
-            daily_cron = self.env['ir.cron'].create({
-                'name': 'WhatsApp Full Data Sync (Daily)',
-                'model_id': model_id.id,
-                'state': 'code',
-                'code': daily_sync_code,
-                'interval_number': 1,
-                'interval_type': 'days',
-                'numbercall': -1,
-                'active': False,
-                'user_id': self.env.ref('base.user_root').id,
-                'doall': False,
-            })
-            
-            _logger.info("Successfully created WhatsApp cron jobs")
-            return hourly_cron + frequent_cron + daily_cron
-            
-        except Exception as e:
-            _logger.error(f"Failed to create WhatsApp cron jobs: {str(e)}")
-            return False
-
     @api.model
-    def init_cron_jobs(self):
-        """Initialize cron jobs - can be called manually if needed"""
-        return self._create_cron_jobs()
+    def init_sync_service(self):
+        """Initialize sync service record if it doesn't exist"""
+        try:
+            sync_service = self.search([], limit=1)
+            if not sync_service:
+                sync_service = self.create({
+                    'name': 'WhatsApp Auto Sync Service'
+                })
+                _logger.info("Created WhatsApp sync service record")
+            return sync_service
+        except Exception as e:
+            _logger.error(f"Failed to initialize sync service: {str(e)}")
+            return False
     
     @api.model
     def cron_sync_all_data(self):
@@ -219,8 +149,8 @@ for config in configs:
         Returns action with notification
         """
         try:
-            # Call the model method correctly
-            self.env['whatsapp.sync.service'].cron_sync_all_data()
+            # Call the cron method
+            self.cron_sync_all_data()
             
             sync_service = self.search([], limit=1)
             if sync_service and sync_service.sync_status == 'success':
@@ -254,36 +184,45 @@ for config in configs:
                 }
             }
 
-    def init_cron_jobs(self):
-        """Initialize cron jobs - can be called manually if needed"""
+    def check_cron_status(self):
+        """Check the status of WhatsApp cron jobs"""
         try:
-            result = self._create_cron_jobs()
-            if result:
+            cron_jobs = self.env['ir.cron'].search([
+                ('name', 'in', ['WhatsApp Data Sync', 'WhatsApp Data Sync (Frequent)', 'WhatsApp Full Data Sync (Daily)'])
+            ])
+            
+            if not cron_jobs:
                 return {
                     'type': 'ir.actions.client',
                     'tag': 'display_notification',
                     'params': {
-                        'title': 'Cron Jobs Created',
-                        'message': f'Successfully created {len(result)} cron jobs',
-                        'type': 'success',
+                        'title': 'No Cron Jobs Found',
+                        'message': 'WhatsApp cron jobs are not installed. Please upgrade the module.',
+                        'type': 'warning',
                     }
                 }
-            else:
-                return {
-                    'type': 'ir.actions.client',
-                    'tag': 'display_notification',
-                    'params': {
-                        'title': 'Cron Jobs',
-                        'message': 'Cron jobs already exist or creation failed',
-                        'type': 'info',
-                    }
+            
+            active_jobs = cron_jobs.filtered('active')
+            message = f"Found {len(cron_jobs)} cron jobs, {len(active_jobs)} active:\n"
+            for job in cron_jobs:
+                status = "ACTIVE" if job.active else "INACTIVE"
+                message += f"• {job.name} [{status}] - Next: {job.nextcall}\n"
+                
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'title': 'Cron Jobs Status',
+                    'message': message,
+                    'type': 'info',
                 }
+            }
         except Exception as e:
             return {
                 'type': 'ir.actions.client',
                 'tag': 'display_notification',
                 'params': {
-                    'title': 'Failed to Create Cron Jobs',
+                    'title': 'Error Checking Cron Status',
                     'message': str(e),
                     'type': 'danger',
                 }

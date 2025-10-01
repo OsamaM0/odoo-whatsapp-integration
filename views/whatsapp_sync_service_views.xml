@@ -26,7 +26,7 @@
                     <header>
                         <button name="manual_sync_all_data" string="Sync Now" type="object" 
                                 class="btn-primary" icon="fa-refresh"/>
-                        <button name="init_cron_jobs" string="Create Cron Jobs" type="object" 
+                        <button name="check_cron_status" string="Check Cron Status" type="object" 
                                 class="btn-secondary" icon="fa-clock-o"/>
                     </header>
                     <sheet>
