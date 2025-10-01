@@ -1115,3 +1115,394 @@ class WhatsAppGroup(models.Model):
                 'sticky': True,
             }
         }
+
+    def action_bulk_sync_groups(self):
+        """Bulk action to sync information for selected groups"""
+        if not self:
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'title': 'No Groups Selected',
+                    'message': 'Please select groups to sync',
+                    'type': 'warning',
+                }
+            }
+        
+        # Get configuration for the current user
+        config = self.env['whatsapp.configuration'].get_user_configuration()
+        if not config:
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'title': 'Configuration Missing',
+                    'message': 'No accessible WhatsApp configuration found',
+                    'type': 'warning',
+                }
+            }
+        
+        # Determine API service based on provider
+        if config.provider == 'whapi':
+            api_service = self.env['whapi.service']
+        else:
+            api_service = self.env['wassenger.api']
+        
+        success_count = 0
+        error_count = 0
+        groups_with_no_id = []
+        
+        for group in self:
+            try:
+                # Skip groups without proper IDs
+                group_identifier = group.group_id if config.provider == 'whapi' else group.wid
+                if not group_identifier:
+                    groups_with_no_id.append(group.name)
+                    continue
+                
+                # Get group info from API
+                group_info = api_service.get_group_info(group_identifier)
+                
+                if group_info:
+                    update_vals = {
+                        'synced_at': fields.Datetime.now(),
+                    }
+                    
+                    # Handle different response formats
+                    if config.provider == 'whapi':
+                        # WHAPI format
+                        update_vals.update({
+                            'name': group_info.get('name', group.name),
+                            'description': group_info.get('description', group.description),
+                            'metadata': str(group_info),
+                        })
+                    else:
+                        # Wassenger format
+                        update_vals.update({
+                            'name': group_info.get('name', group.name),
+                            'description': group_info.get('description', group.description),
+                        })
+                    
+                    group.write(update_vals)
+                    success_count += 1
+                else:
+                    error_count += 1
+                    
+                # Small delay to avoid rate limiting
+                import time
+                time.sleep(0.2)
+                
+            except Exception as e:
+                _logger.error(f"Failed to sync group {group.name}: {e}")
+                error_count += 1
+                continue
+        
+        # Prepare result message
+        message_parts = []
+        if success_count > 0:
+            message_parts.append(f"Successfully synced {success_count} groups")
+        if error_count > 0:
+            message_parts.append(f"{error_count} groups failed to sync")
+        if groups_with_no_id:
+            message_parts.append(f"Skipped {len(groups_with_no_id)} groups without valid IDs")
+        
+        message = ". ".join(message_parts) if message_parts else "No groups were processed"
+        
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': 'Bulk Group Sync Complete',
+                'message': message,
+                'type': 'success' if success_count > 0 else 'warning',
+                'sticky': True,
+            }
+        }
+
+    def action_bulk_send_message(self):
+        """Bulk action to send messages to selected groups"""
+        if not self:
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'title': 'No Groups Selected',
+                    'message': 'Please select groups to send messages to',
+                    'type': 'warning',
+                }
+            }
+        
+        # Filter groups that have valid group IDs
+        valid_groups = self.filtered(lambda g: g.group_id)
+        
+        if not valid_groups:
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'title': 'No Valid Groups',
+                    'message': 'Selected groups do not have valid group IDs. Please sync them first.',
+                    'type': 'warning',
+                }
+            }
+        
+        # Open wizard with multiple groups context
+        return {
+            'type': 'ir.actions.act_window',
+            'name': 'Send Message to Multiple Groups',
+            'res_model': 'whatsapp.send.message.wizard',
+            'view_mode': 'form',
+            'target': 'new',
+            'context': {
+                'default_group_ids': [(6, 0, valid_groups.ids)],
+                'bulk_message': True,
+                'default_is_bulk': True,
+            }
+        }
+
+    def action_bulk_generate_invite_codes(self):
+        """Generate invite codes for all selected groups (enhanced version)"""
+        if not self:
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'title': 'No Groups Selected',
+                    'message': 'Please select groups to generate invite codes for',
+                    'type': 'warning',
+                }
+            }
+        
+        whapi_groups = self.filtered(lambda g: g.provider == 'whapi' and g.group_id)
+        
+        if not whapi_groups:
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'title': 'No WHAPI Groups',
+                    'message': 'No WHAPI groups selected or groups need to be synced first',
+                    'type': 'warning',
+                }
+            }
+        
+        try:
+            api_service = self.env['whapi.service']
+            success_count = 0
+            error_count = 0
+            
+            for group in whapi_groups:
+                try:
+                    invite_code = api_service.get_group_invite_code(group.group_id)
+                    if invite_code:
+                        group.write({
+                            'invite_code': invite_code,
+                            'invite_fetched_at': fields.Datetime.now(),
+                        })
+                        success_count += 1
+                    else:
+                        error_count += 1
+                except Exception:
+                    error_count += 1
+                
+                # Small delay to avoid rate limiting
+                import time
+                time.sleep(0.3)
+            
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'title': 'Bulk Invite Code Generation',
+                    'message': f'Successfully generated {success_count} invite codes, {error_count} failed',
+                    'type': 'success' if success_count > 0 else 'warning',
+                    'sticky': True,
+                }
+            }
+            
+        except Exception as e:
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'title': 'Batch Generation Failed',
+                    'message': f'Error: {str(e)}',
+                    'type': 'danger',
+                }
+            }
+
+    def action_bulk_update_members(self):
+        """Bulk action to update members for selected groups"""
+        if not self:
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'title': 'No Groups Selected',
+                    'message': 'Please select groups to update members for',
+                    'type': 'warning',
+                }
+            }
+        
+        # Filter groups that have valid group IDs
+        valid_groups = self.filtered(lambda g: g.group_id)
+        
+        if not valid_groups:
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'title': 'No Valid Groups',
+                    'message': 'Selected groups do not have valid group IDs. Please sync them first.',
+                    'type': 'warning',
+                }
+            }
+        
+        # Get configuration for the current user
+        config = self.env['whatsapp.configuration'].get_user_configuration()
+        if not config:
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'title': 'Configuration Missing',
+                    'message': 'No accessible WhatsApp configuration found',
+                    'type': 'warning',
+                }
+            }
+        
+        # Determine API service based on provider
+        if config.provider == 'whapi':
+            api_service = self.env['whapi.service']
+        else:
+            api_service = self.env['wassenger.api']
+        
+        success_count = 0
+        error_count = 0
+        total_members_synced = 0
+        
+        for group in valid_groups:
+            try:
+                # Get group info including participants
+                group_info = api_service.get_group_info(group.group_id)
+                
+                if not group_info:
+                    error_count += 1
+                    continue
+                
+                # Extract participants from API response
+                participants = []
+                if isinstance(group_info, dict):
+                    participant_fields = ['participants', 'members', 'participants_list', 'group_participants']
+                    for field in participant_fields:
+                        if field in group_info:
+                            participants = group_info[field]
+                            break
+                
+                if not isinstance(participants, list):
+                    error_count += 1
+                    continue
+                
+                # Process participants
+                participant_contacts = []
+                
+                for participant in participants:
+                    if not isinstance(participant, dict):
+                        continue
+                    
+                    # Get contact ID
+                    contact_id = None
+                    id_fields = ['id', 'contact_id', 'phone', 'number', 'jid']
+                    for field in id_fields:
+                        if field in participant and participant[field]:
+                            contact_id = participant[field]
+                            break
+                    
+                    if not contact_id:
+                        continue
+                    
+                    # Convert to WhatsApp format
+                    if '@' not in contact_id and contact_id.isdigit():
+                        whatsapp_contact_id = f"{contact_id}@s.whatsapp.net"
+                        phone_number = contact_id
+                    else:
+                        whatsapp_contact_id = contact_id
+                        if '@s.whatsapp.net' in contact_id:
+                            phone_number = contact_id.replace('@s.whatsapp.net', '')
+                        elif '@c.us' in contact_id:
+                            phone_number = contact_id.replace('@c.us', '')
+                        else:
+                            phone_number = contact_id
+                    
+                    # Find or create contact
+                    contact = self.env['whatsapp.contact'].search([
+                        '|', 
+                        ('contact_id', '=', whatsapp_contact_id),
+                        ('phone', '=', phone_number)
+                    ], limit=1)
+                    
+                    if not contact:
+                        # Create new contact
+                        name = participant.get('name', '') or participant.get('pushname', '') or phone_number
+                        
+                        contact_data = {
+                            'contact_id': whatsapp_contact_id,
+                            'name': name,
+                            'pushname': participant.get('pushname', ''),
+                            'phone': phone_number,
+                            'provider': config.provider,
+                            'synced_at': fields.Datetime.now(),
+                            'is_chat_contact': True,
+                            'is_phone_contact': False,
+                            'configuration_id': config.id,
+                        }
+                        
+                        try:
+                            contact = self.env['whatsapp.contact'].create(contact_data)
+                        except Exception:
+                            # If creation fails (e.g., duplicate), try to find existing
+                            contact = self.env['whatsapp.contact'].search([
+                                '|', 
+                                ('contact_id', '=', whatsapp_contact_id),
+                                ('phone', '=', phone_number)
+                            ], limit=1)
+                    
+                    if contact:
+                        participant_contacts.append(contact.id)
+                
+                # Update group participants
+                if participant_contacts:
+                    # Clear existing and add new participants
+                    group.write({
+                        'participant_ids': [(6, 0, participant_contacts)],
+                        'synced_at': fields.Datetime.now(),
+                    })
+                else:
+                    # Clear participants for empty groups
+                    group.write({
+                        'participant_ids': [(5, 0, 0)],
+                        'synced_at': fields.Datetime.now(),
+                    })
+                
+                success_count += 1
+                total_members_synced += len(participant_contacts)
+                
+                # Small delay to avoid rate limiting
+                import time
+                time.sleep(0.3)
+                
+            except Exception as e:
+                _logger.error(f"Failed to update members for group {group.name}: {e}")
+                error_count += 1
+                continue
+        
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': 'Bulk Member Update Complete',
+                'message': f'Updated {success_count} groups with {total_members_synced} total members. {error_count} groups failed.',
+                'type': 'success' if success_count > 0 else 'warning',
+                'sticky': True,
+            }
+        }

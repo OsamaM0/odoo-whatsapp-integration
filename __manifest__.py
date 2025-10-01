@@ -26,6 +26,7 @@
         'security/security.xml',
         'security/ir.model.access.csv',
         'data/whatsapp_cron.xml',
+        'data/whatsapp_group_bulk_actions.xml',
         'views/whatsapp_configuration_views.xml',
         'wizard/whatsapp_send_message_wizard_views.xml',
         'wizard/whatsapp_sync_wizard_views.xml',

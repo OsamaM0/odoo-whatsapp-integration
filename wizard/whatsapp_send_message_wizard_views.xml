@@ -11,15 +11,25 @@
             <!-- Recipient Section -->
             <group col="2">
               <separator string="Recipient Selection" colspan="2"/>
+              <field name="is_bulk" invisible="1"/>
+              
+              <!-- Single recipient fields -->
               <field name="recipient_id"
-                     attrs="{'invisible': [('group_id', '!=', False)]}"
+                     attrs="{'invisible': ['|', ('group_id', '!=', False), ('is_bulk', '=', True)]}"
                      options="{'no_create': True}"/>
               <field name="group_id"
-                     attrs="{'invisible': [('recipient_id', '!=', False)]}"
+                     attrs="{'invisible': ['|', ('recipient_id', '!=', False), ('is_bulk', '=', True)]}"
                      options="{'no_create': True}"/>
               <field name="phone"
-                     attrs="{'readonly': [('recipient_id', '!=', False)]}"
+                     attrs="{'readonly': [('recipient_id', '!=', False)], 'invisible': [('is_bulk', '=', True)]}"
                      placeholder="Enter phone number..."/>
+              
+              <!-- Bulk recipient field -->
+              <field name="group_ids"
+                     attrs="{'invisible': [('is_bulk', '!=', True)], 'required': [('is_bulk', '=', True)]}"
+                     widget="many2many_tags"
+                     options="{'no_create': True}"
+                     colspan="2"/>
             </group>
 
             <!-- Message Type Selector -->
