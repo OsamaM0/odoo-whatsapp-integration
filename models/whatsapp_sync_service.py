@@ -197,7 +197,7 @@ class WhatsAppSyncService(models.Model):
                     'tag': 'display_notification',
                     'params': {
                         'title': 'No Cron Jobs Found',
-                        'message': 'WhatsApp cron jobs are not installed. Please upgrade the module.',
+                        'message': 'WhatsApp cron jobs are not installed. Use "Create Cron Jobs" button to create them.',
                         'type': 'warning',
                     }
                 }
@@ -223,6 +223,60 @@ class WhatsAppSyncService(models.Model):
                 'tag': 'display_notification',
                 'params': {
                     'title': 'Error Checking Cron Status',
+                    'message': str(e),
+                    'type': 'danger',
+                }
+            }
+
+    def init_cron_jobs(self):
+        """Create cron jobs manually if they don't exist"""
+        try:
+            # Check if cron jobs already exist
+            existing_crons = self.env['ir.cron'].search([
+                ('name', 'in', ['WhatsApp Data Sync', 'WhatsApp Data Sync (Frequent)', 'WhatsApp Full Data Sync (Daily)'])
+            ])
+            
+            if existing_crons:
+                return {
+                    'type': 'ir.actions.client',
+                    'tag': 'display_notification',
+                    'params': {
+                        'title': 'Cron Jobs Already Exist',
+                        'message': f'Found {len(existing_crons)} existing cron jobs. No need to create new ones.',
+                        'type': 'info',
+                    }
+                }
+            
+            # Import the creation function from hooks
+            from ..hooks import _create_cron_jobs
+            result = _create_cron_jobs(self.env)
+            
+            if result:
+                return {
+                    'type': 'ir.actions.client',
+                    'tag': 'display_notification',
+                    'params': {
+                        'title': 'Cron Jobs Created',
+                        'message': f'Successfully created {len(result)} cron jobs. Check "Cron Status" to verify.',
+                        'type': 'success',
+                    }
+                }
+            else:
+                return {
+                    'type': 'ir.actions.client',
+                    'tag': 'display_notification',
+                    'params': {
+                        'title': 'Failed to Create Cron Jobs',
+                        'message': 'Error occurred during cron job creation. Check server logs for details.',
+                        'type': 'danger',
+                    }
+                }
+        except Exception as e:
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'title': 'Error Creating Cron Jobs',
                     'message': str(e),
                     'type': 'danger',
                 }

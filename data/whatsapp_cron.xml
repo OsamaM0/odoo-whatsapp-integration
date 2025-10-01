@@ -1,61 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <data noupdate="1">
-        
-        <!-- WhatsApp Hourly Sync Cron Job -->
-        <record id="whatsapp_sync_cron_hourly" model="ir.cron">
-            <field name="name">WhatsApp Data Sync</field>
-            <field name="model_id" ref="model_whatsapp_sync_service"/>
-            <field name="state">code</field>
-            <field name="code">model.cron_sync_all_data()</field>
-            <field name="interval_number">1</field>
-            <field name="interval_type">hours</field>
-            <field name="numbercall">-1</field>
-            <field name="active" eval="True"/>
-            <field name="doall" eval="False"/>
-            <field name="user_id" ref="base.user_root"/>
+        <!-- WhatsApp Sync Service Record -->
+        <record id="whatsapp_sync_service_default" model="whatsapp.sync.service">
+            <field name="name">WhatsApp Auto Sync Service</field>
         </record>
-
-        <!-- WhatsApp Frequent Sync Cron Job (30 minutes) - Inactive by default -->
-        <record id="whatsapp_sync_cron_frequent" model="ir.cron">
-            <field name="name">WhatsApp Data Sync (Frequent)</field>
-            <field name="model_id" ref="model_whatsapp_sync_service"/>
-            <field name="state">code</field>
-            <field name="code">model.cron_sync_all_data()</field>
-            <field name="interval_number">30</field>
-            <field name="interval_type">minutes</field>
-            <field name="numbercall">-1</field>
-            <field name="active" eval="False"/>
-            <field name="doall" eval="False"/>
-            <field name="user_id" ref="base.user_root"/>
-        </record>
-
-        <!-- WhatsApp Daily Full Sync Cron Job - Inactive by default -->
-        <record id="whatsapp_sync_cron_daily" model="ir.cron">
-            <field name="name">WhatsApp Full Data Sync (Daily)</field>
-            <field name="model_id" ref="model_whatsapp_sync_service"/>
-            <field name="state">code</field>
-            <field name="code">
-# Full daily sync with more messages
-configs = env['whatsapp.configuration'].search([('active', '=', True)])
-for config in configs:
-    sync_env = env.with_context(whatsapp_config_id=config.id, skip_config_filter=True)
-    try:
-        sync_env['whatsapp.message'].sync_all_messages_from_api(count=200)
-        sync_env['whatsapp.contact'].sync_all_contacts_from_api()
-        sync_env['whatsapp.group'].sync_all_groups_from_api()
-        sync_env['whatsapp.group'].sync_all_group_members_from_api()
-    except Exception as e:
-        import logging
-        logging.getLogger(__name__).error(f"Daily sync error for config {config.name}: {str(e)}")
-            </field>
-            <field name="interval_number">1</field>
-            <field name="interval_type">days</field>
-            <field name="numbercall">-1</field>
-            <field name="active" eval="False"/>
-            <field name="doall" eval="False"/>
-            <field name="user_id" ref="base.user_root"/>
-        </record>
-
     </data>
 </odoo>
