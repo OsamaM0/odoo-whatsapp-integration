@@ -9,24 +9,6 @@
                 <tree decoration-muted="is_active == False" create="true" 
                       multi_edit="1"
                       sample="1">
-                    <header>
-                        <button name="action_bulk_sync_groups" string="Sync Selected Groups" type="object" 
-                                class="btn-primary" icon="fa-refresh" 
-                                groups="whatsapp_integration.group_whatsapp_user"
-                                help="Sync information for all selected groups"/>
-                        <button name="action_bulk_send_message" string="Send Message to Selected" type="object" 
-                                class="btn-success" icon="fa-paper-plane"
-                                groups="whatsapp_integration.group_whatsapp_user"
-                                help="Send message to all selected groups"/>
-                        <button name="action_bulk_generate_invite_codes" string="Generate Invite Codes" type="object" 
-                                class="btn-info" icon="fa-link"
-                                groups="whatsapp_integration.group_whatsapp_user"
-                                help="Generate invite codes for all selected WHAPI groups"/>
-                        <button name="action_bulk_update_members" string="Update Members" type="object" 
-                                class="btn-secondary" icon="fa-users"
-                                groups="whatsapp_integration.group_whatsapp_user"
-                                help="Update member lists for all selected groups"/>
-                    </header>
                     <field name="name"/>
                     <field name="description"/>
                     <field name="participant_count"/>

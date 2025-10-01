@@ -30,6 +30,18 @@ class WhatsAppSendMessageWizard(models.TransientModel):
     # Options
     preview_url = fields.Boolean('Preview URL', default=True)
     
+    @api.model
+    def default_get(self, fields):
+        res = super().default_get(fields)
+        
+        # Handle bulk message context
+        if self.env.context.get('default_is_bulk') and self.env.context.get('active_ids'):
+            active_ids = self.env.context.get('active_ids', [])
+            res['group_ids'] = [(6, 0, active_ids)]
+            res['is_bulk'] = True
+        
+        return res
+    
     @api.onchange('recipient_id')
     def _onchange_recipient_id(self):
         if self.recipient_id:
