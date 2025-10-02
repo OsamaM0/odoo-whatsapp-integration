@@ -70,6 +70,50 @@ class WhatsAppGroup(models.Model):
         
         return super().search(args, offset=offset, limit=limit, order=order, count=count)
     
+    @api.model
+    def execute_bulk_action(self):
+        """Execute bulk action based on context"""
+        bulk_action = self.env.context.get('bulk_action')
+        active_ids = self.env.context.get('active_ids', [])
+        
+        if not bulk_action or not active_ids:
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'title': 'No Action or Groups',
+                    'message': 'No bulk action specified or no groups selected',
+                    'type': 'warning',
+                }
+            }
+        
+        _logger.info(f"Executing bulk action: {bulk_action} for groups: {active_ids}")
+        
+        # Get the selected groups
+        selected_groups = self.browse(active_ids)
+        
+        if bulk_action == 'sync':
+            return selected_groups.action_bulk_sync_groups()
+        elif bulk_action == 'invite':
+            return selected_groups.action_bulk_generate_invite_codes()
+        elif bulk_action == 'members':
+            return selected_groups.action_bulk_update_members()
+        else:
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'title': 'Unknown Bulk Action',
+                    'message': f'Unknown bulk action: {bulk_action}',
+                    'type': 'warning',
+                }
+            }
+
+    @api.model
+    def default_get(self, fields):
+        res = super().default_get(fields)
+        return res
+    
     @api.constrains('group_id')
     def _check_group_id_after_create(self):
         """Ensure group_id is set after creation for active groups"""

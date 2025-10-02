@@ -1,20 +1,41 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <data>
-        <!-- Bulk Sync Action - Direct Call -->
-        <record id="action_bulk_sync_groups_direct" model="ir.actions.server">
+        <!-- Try server actions with minimal required fields -->
+        <record id="action_bulk_sync_groups_test" model="ir.actions.server">
             <field name="name">Bulk Sync Groups</field>
             <field name="model_id" ref="model_whatsapp_group"/>
-            <field name="binding_model_id" ref="model_whatsapp_group"/>
-            <field name="binding_view_types">list</field>
             <field name="state">code</field>
             <field name="code">
-result = records.action_bulk_sync_groups()
-action = result
+action = records.action_bulk_sync_groups()
             </field>
+            <field name="binding_model_id" ref="model_whatsapp_group"/>
+            <field name="binding_view_types">list</field>
         </record>
 
-        <!-- Bulk Send Message Action -->
+        <record id="action_bulk_generate_invite_codes_test" model="ir.actions.server">
+            <field name="name">Generate Invite Codes for Selected</field>
+            <field name="model_id" ref="model_whatsapp_group"/>
+            <field name="state">code</field>
+            <field name="code">
+action = records.action_bulk_generate_invite_codes()
+            </field>
+            <field name="binding_model_id" ref="model_whatsapp_group"/>
+            <field name="binding_view_types">list</field>
+        </record>
+
+        <record id="action_bulk_update_members_test" model="ir.actions.server">
+            <field name="name">Update Members for Selected Groups</field>
+            <field name="model_id" ref="model_whatsapp_group"/>
+            <field name="state">code</field>
+            <field name="code">
+action = records.action_bulk_update_members()
+            </field>
+            <field name="binding_model_id" ref="model_whatsapp_group"/>
+            <field name="binding_view_types">list</field>
+        </record>
+
+        <!-- Bulk Send Message Action (this one works) -->
         <record id="action_bulk_send_message_wizard" model="ir.actions.act_window">
             <field name="name">Send Message to Selected Groups</field>
             <field name="res_model">whatsapp.send.message.wizard</field>
@@ -23,32 +44,6 @@ action = result
             <field name="context">{'default_is_bulk': True}</field>
             <field name="binding_model_id" ref="model_whatsapp_group"/>
             <field name="binding_view_types">list</field>
-        </record>
-
-        <!-- Bulk Generate Invite Codes Action - Direct Call -->
-        <record id="action_bulk_generate_invite_codes_direct" model="ir.actions.server">
-            <field name="name">Generate Invite Codes for Selected</field>
-            <field name="model_id" ref="model_whatsapp_group"/>
-            <field name="binding_model_id" ref="model_whatsapp_group"/>
-            <field name="binding_view_types">list</field>
-            <field name="state">code</field>
-            <field name="code">
-result = records.action_bulk_generate_invite_codes()
-action = result
-            </field>
-        </record>
-
-        <!-- Bulk Update Members Action - Direct Call -->
-        <record id="action_bulk_update_members_direct" model="ir.actions.server">
-            <field name="name">Update Members for Selected Groups</field>
-            <field name="model_id" ref="model_whatsapp_group"/>
-            <field name="binding_model_id" ref="model_whatsapp_group"/>
-            <field name="binding_view_types">list</field>
-            <field name="state">code</field>
-            <field name="code">
-result = records.action_bulk_update_members()
-action = result
-            </field>
         </record>
     </data>
 </odoo>
