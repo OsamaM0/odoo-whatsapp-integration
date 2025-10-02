@@ -11,6 +11,8 @@ action = records.action_bulk_sync_groups()
             </field>
             <field name="binding_model_id" ref="model_whatsapp_group"/>
             <field name="binding_view_types">list</field>
+            <field name="user_id" ref="base.user_root"/>
+            <field name="activity_user_type">specific</field>
         </record>
 
         <record id="action_bulk_generate_invite_codes_test" model="ir.actions.server">
@@ -22,6 +24,8 @@ action = records.action_bulk_generate_invite_codes()
             </field>
             <field name="binding_model_id" ref="model_whatsapp_group"/>
             <field name="binding_view_types">list</field>
+            <field name="user_id" ref="base.user_root"/>
+            <field name="activity_user_type">specific</field>
         </record>
 
         <record id="action_bulk_update_members_test" model="ir.actions.server">
@@ -33,6 +37,8 @@ action = records.action_bulk_update_members()
             </field>
             <field name="binding_model_id" ref="model_whatsapp_group"/>
             <field name="binding_view_types">list</field>
+            <field name="user_id" ref="base.user_root"/>
+            <field name="activity_user_type">specific</field>
         </record>
 
         <!-- Bulk Send Message Action (this one works) -->
