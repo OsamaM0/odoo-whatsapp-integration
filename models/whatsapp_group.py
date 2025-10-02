@@ -1118,6 +1118,8 @@ class WhatsAppGroup(models.Model):
 
     def action_bulk_sync_groups(self):
         """Bulk action to sync information for selected groups"""
+        _logger.info(f"=== BULK SYNC STARTED === Processing {len(self)} groups")
+        
         if not self:
             return {
                 'type': 'ir.actions.client',

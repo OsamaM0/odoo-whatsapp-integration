@@ -1,15 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <data>
-        <!-- Bulk Sync Action -->
-        <record id="action_bulk_sync_groups_wizard" model="ir.actions.act_window">
+        <!-- Bulk Sync Action - Direct Call -->
+        <record id="action_bulk_sync_groups_direct" model="ir.actions.server">
             <field name="name">Bulk Sync Groups</field>
-            <field name="res_model">whatsapp.bulk.action.wizard</field>
-            <field name="view_mode">form</field>
-            <field name="target">new</field>
-            <field name="context">{'default_action_type': 'bulk_sync'}</field>
+            <field name="model_id" ref="model_whatsapp_group"/>
             <field name="binding_model_id" ref="model_whatsapp_group"/>
             <field name="binding_view_types">list</field>
+            <field name="state">code</field>
+            <field name="code">
+result = records.action_bulk_sync_groups()
+action = result
+            </field>
         </record>
 
         <!-- Bulk Send Message Action -->
@@ -23,26 +25,30 @@
             <field name="binding_view_types">list</field>
         </record>
 
-        <!-- Bulk Generate Invite Codes Action -->
-        <record id="action_bulk_generate_invite_codes_wizard" model="ir.actions.act_window">
+        <!-- Bulk Generate Invite Codes Action - Direct Call -->
+        <record id="action_bulk_generate_invite_codes_direct" model="ir.actions.server">
             <field name="name">Generate Invite Codes for Selected</field>
-            <field name="res_model">whatsapp.bulk.action.wizard</field>
-            <field name="view_mode">form</field>
-            <field name="target">new</field>
-            <field name="context">{'default_action_type': 'bulk_invite'}</field>
+            <field name="model_id" ref="model_whatsapp_group"/>
             <field name="binding_model_id" ref="model_whatsapp_group"/>
             <field name="binding_view_types">list</field>
+            <field name="state">code</field>
+            <field name="code">
+result = records.action_bulk_generate_invite_codes()
+action = result
+            </field>
         </record>
 
-        <!-- Bulk Update Members Action -->
-        <record id="action_bulk_update_members_wizard" model="ir.actions.act_window">
+        <!-- Bulk Update Members Action - Direct Call -->
+        <record id="action_bulk_update_members_direct" model="ir.actions.server">
             <field name="name">Update Members for Selected Groups</field>
-            <field name="res_model">whatsapp.bulk.action.wizard</field>
-            <field name="view_mode">form</field>
-            <field name="target">new</field>
-            <field name="context">{'default_action_type': 'bulk_members'}</field>
+            <field name="model_id" ref="model_whatsapp_group"/>
             <field name="binding_model_id" ref="model_whatsapp_group"/>
             <field name="binding_view_types">list</field>
+            <field name="state">code</field>
+            <field name="code">
+result = records.action_bulk_update_members()
+action = result
+            </field>
         </record>
     </data>
 </odoo>
